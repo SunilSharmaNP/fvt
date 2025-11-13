@@ -17,44 +17,37 @@ import sys
 import signal
 from datetime import datetime
 from pyrogram import Client, filters, idle, ContinuePropagation
-from pyrogram.types import (
-    Message, InlineKeyboardMarkup, InlineKeyboardButton,
-    CallbackQuery, ForceReply, InputMediaPhoto, BotCommand,
-    BotCommandScopeChat
-)
-from pyrogram.errors import (
-    FloodWait, UserNotParticipant, MessageNotModified, QueryIdInvalid
-)
+from pyrogram.types import (Message, InlineKeyboardMarkup,
+                            InlineKeyboardButton, CallbackQuery, ForceReply,
+                            InputMediaPhoto, BotCommand, BotCommandScopeChat)
+from pyrogram.errors import (FloodWait, UserNotParticipant, MessageNotModified,
+                             QueryIdInvalid)
 
 # --- Module Imports ---
 from config import config
-from modules.database import db # v6.0
+from modules.database import db  # v6.0
 from modules import bot_state, log_manager, processor, media_info
 from modules.downloader import download_from_tg, YTDLDownloader
 from modules.uploader import GofileUploader, upload_to_telegram
 from modules.helpers import force_subscribe_check, is_authorized_user, verify_user_complete
-from modules.utils import (
-    cleanup_files, is_valid_url, get_human_readable_size, format_duration,
-    process_manager, parse_time_input
-)
+from modules.utils import (cleanup_files, is_valid_url,
+                           get_human_readable_size, format_duration,
+                           process_manager, parse_time_input)
 # MODIFIED: (v6.0) Imports granular menu functions
 from modules.ui_menus import (
-    get_start_menu, get_user_settings_menu, get_video_tools_menu, get_admin_menu,
-    get_metadata_submenu,
-    get_vt_merge_menu, get_vt_encode_menu, get_vt_trim_menu,
-    get_vt_watermark_menu, get_vt_sample_menu, get_vt_extract_menu, get_vt_extra_menu,
-    get_vt_rotate_menu, get_vt_flip_menu, get_vt_speed_menu, get_vt_volume_menu,
-    get_vt_crop_menu, get_vt_gif_menu, get_vt_reverse_menu
-)
+    get_start_menu, get_user_settings_menu, get_video_tools_menu,
+    get_admin_menu, get_metadata_submenu, get_vt_merge_menu,
+    get_vt_encode_menu, get_vt_trim_menu, get_vt_watermark_menu,
+    get_vt_sample_menu, get_vt_extract_menu, get_vt_extra_menu,
+    get_vt_rotate_menu, get_vt_flip_menu, get_vt_speed_menu,
+    get_vt_volume_menu, get_vt_crop_menu, get_vt_gif_menu, get_vt_reverse_menu)
 # Import pyromod for client.ask functionality
 from pyromod import listen
-
 
 # --- Logging Setup ---
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- Config Check ---
@@ -64,12 +57,10 @@ if not isinstance(config.API_ID, int):
 
 # --- Pyrogram Client (with Pyromod) ---
 try:
-    app = Client(
-        "SS_Video_Workstation_Bot_v5",
-        api_id=config.API_ID,
-        api_hash=config.API_HASH,
-        bot_token=config.BOT_TOKEN
-    )
+    app = Client("SS_Video_Workstation_Bot_v5",
+                 api_id=config.API_ID,
+                 api_hash=config.API_HASH,
+                 bot_token=config.BOT_TOKEN)
 except Exception as e:
     logger.critical(f"Failed to initialize bot client: {e}")
     sys.exit(1)
@@ -81,32 +72,58 @@ except Exception as e:
 # ===================================================================
 # (No changes needed in v6.0)
 
+
 @app.on_message(filters.command("start"))
 async def start_handler(client: Client, message: Message):
     user_id = message.from_user.id
     chat_id = message.chat.id
     try:
         if not await is_authorized_user(user_id, chat_id):
-            if chat_id == user_id: return await message.reply_text(config.MSG_PRIVATE_CHAT_RESTRICTED)
-            else: return await message.reply_text(config.MSG_GROUP_NOT_AUTHORIZED)
+            if chat_id == user_id:
+                return await message.reply_text(
+                    config.MSG_PRIVATE_CHAT_RESTRICTED)
+            else:
+                return await message.reply_text(config.MSG_GROUP_NOT_AUTHORIZED
+                                                )
         if not await verify_user_complete(client, message): return
         image, caption, keyboard = await get_start_menu(user_id)
-        await message.reply_photo(photo=image, caption=caption, reply_markup=keyboard, quote=True)
+        await message.reply_photo(photo=image,
+                                  caption=caption,
+                                  reply_markup=keyboard,
+                                  quote=True)
     except Exception as e:
         logger.error(f"Start handler error: {e}", exc_info=True)
-        try: await message.reply_text("❌ Error: Bot could not be started.")
-        except: pass
+        try:
+            await message.reply_text("❌ Error: Bot could not be started.")
+        except:
+            pass
+
 
 @app.on_message(filters.command(["help", f"help@{config.BOT_USERNAME}"]))
 async def help_handler(client: Client, message: Message):
-    if not await is_authorized_user(message.from_user.id, message.chat.id): return
-    await message.reply_text(config.MSG_HELP, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"🔙 {config.BTN_BACK}", callback_data="open:start")]]))
+    if not await is_authorized_user(message.from_user.id, message.chat.id):
+        return
+    await message.reply_text(config.MSG_HELP,
+                             reply_markup=InlineKeyboardMarkup([[
+                                 InlineKeyboardButton(
+                                     f"🔙 {config.BTN_BACK}",
+                                     callback_data="open:start")
+                             ]]))
+
 
 @app.on_message(filters.command(["about", f"about@{config.BOT_USERNAME}"]))
 async def about_handler(client: Client, message: Message):
-    if not await is_authorized_user(message.from_user.id, message.chat.id): return
-    caption = config.MSG_ABOUT.format(bot_name=config.BOT_NAME, developer=config.DEVELOPER)
-    await message.reply_text(caption, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"🔙 {config.BTN_BACK}", callback_data="open:start")]]))
+    if not await is_authorized_user(message.from_user.id, message.chat.id):
+        return
+    caption = config.MSG_ABOUT.format(bot_name=config.BOT_NAME,
+                                      developer=config.DEVELOPER)
+    await message.reply_text(caption,
+                             reply_markup=InlineKeyboardMarkup([[
+                                 InlineKeyboardButton(
+                                     f"🔙 {config.BTN_BACK}",
+                                     callback_data="open:start")
+                             ]]))
+
 
 @app.on_message(filters.command(["us", "settings", "usersettings"]))
 async def user_settings_handler(client: Client, message: Message):
@@ -115,10 +132,14 @@ async def user_settings_handler(client: Client, message: Message):
     if not await verify_user_complete(client, message): return
     try:
         image, caption, keyboard = await get_user_settings_menu(user_id)
-        await message.reply_photo(photo=image, caption=caption, reply_markup=keyboard, quote=True)
+        await message.reply_photo(photo=image,
+                                  caption=caption,
+                                  reply_markup=keyboard,
+                                  quote=True)
     except Exception as e:
         logger.error(f"User Settings handler error: {e}", exc_info=True)
         await message.reply_text(f"❌ Error loading settings: {e}")
+
 
 @app.on_message(filters.command(["vt", "tools", "videotools"]))
 async def video_tools_handler(client: Client, message: Message):
@@ -127,20 +148,29 @@ async def video_tools_handler(client: Client, message: Message):
     if not await verify_user_complete(client, message): return
     try:
         image, caption, keyboard = await get_video_tools_menu(user_id)
-        await message.reply_photo(photo=image, caption=caption, reply_markup=keyboard, quote=True)
+        await message.reply_photo(photo=image,
+                                  caption=caption,
+                                  reply_markup=keyboard,
+                                  quote=True)
     except Exception as e:
         logger.error(f"Video Tools handler error: {e}", exc_info=True)
         await message.reply_text(f"❌ Error loading tools: {e}")
+
 
 # ===================================================================
 # 2. ADMIN & BOT MODE COMMANDS
 # ===================================================================
 # (No changes needed in v6.0)
 
+
 @app.on_message(filters.command("admin") & filters.user(config.ADMINS))
 async def admin_handler(client: Client, message: Message):
     image, caption, keyboard = await get_admin_menu()
-    await message.reply_photo(photo=image, caption=caption, reply_markup=keyboard, quote=True)
+    await message.reply_photo(photo=image,
+                              caption=caption,
+                              reply_markup=keyboard,
+                              quote=True)
+
 
 @app.on_message(filters.command("botmode") & filters.user(config.ADMINS))
 async def get_mode_handler(client: Client, message: Message):
@@ -148,15 +178,19 @@ async def get_mode_handler(client: Client, message: Message):
     emoji = "✅" if mode == "ACTIVE" else "HOLD ⏸️"
     await message.reply_text(f"Global Bot Status: **{mode} {emoji}**")
 
+
 @app.on_message(filters.command("activate") & filters.user(config.ADMINS))
 async def activate_handler(client: Client, message: Message):
     bot_state.set_bot_mode("ACTIVE")
     await message.reply_text("✅ **Bot Activated!**\nNow processing new tasks.")
 
+
 @app.on_message(filters.command("deactivate") & filters.user(config.ADMINS))
 async def deactivate_handler(client: Client, message: Message):
     bot_state.set_bot_mode("HOLD")
-    await message.reply_text("⏸️ **Bot on Hold!**\nWill not process new tasks.")
+    await message.reply_text("⏸️ **Bot on Hold!**\nWill not process new tasks."
+                             )
+
 
 @app.on_message(filters.command("hold"))
 async def hold_handler(client: Client, message: Message):
@@ -190,15 +224,18 @@ async def status_handler(client: Client, message: Message):
         status_text += "------\n"
     await message.reply_text(status_text)
 
+
 @app.on_message(filters.command("restart") & filters.user(config.SUDO_USERS))
 async def restart_handler(client: Client, message: Message):
     try:
         await message.reply_text("🔄 **Restarting...**")
-        logger.info(f"Bot restart initiated by SUDO user {message.from_user.id}")
+        logger.info(
+            f"Bot restart initiated by SUDO user {message.from_user.id}")
         await client.stop()
         os.execl(sys.executable, sys.executable, *sys.argv)
     except Exception as e:
         logger.error(f"Restart failed: {e}")
+
 
 @app.on_message(filters.command("addauth") & filters.user(config.ADMINS))
 async def add_auth_chat(client: Client, message: Message):
@@ -206,11 +243,17 @@ async def add_auth_chat(client: Client, message: Message):
     if message.reply_to_message:
         chat_id = message.reply_to_message.chat.id
     elif len(message.command) > 1:
-        try: chat_id = int(message.command[1])
-        except ValueError: return await message.reply_text("Invalid Chat ID.")
-    if await db.is_authorized_chat(chat_id): return await message.reply_text("✅ Chat is already authorized.")
-    if await db.add_authorized_chat(chat_id): await message.reply_text(f"✅ Chat `{chat_id}` has been authorized.")
-    else: await message.reply_text("❌ Failed to authorize chat.")
+        try:
+            chat_id = int(message.command[1])
+        except ValueError:
+            return await message.reply_text("Invalid Chat ID.")
+    if await db.is_authorized_chat(chat_id):
+        return await message.reply_text("✅ Chat is already authorized.")
+    if await db.add_authorized_chat(chat_id):
+        await message.reply_text(f"✅ Chat `{chat_id}` has been authorized.")
+    else:
+        await message.reply_text("❌ Failed to authorize chat.")
+
 
 @app.on_message(filters.command("removeauth") & filters.user(config.ADMINS))
 async def remove_auth_chat(client: Client, message: Message):
@@ -218,16 +261,23 @@ async def remove_auth_chat(client: Client, message: Message):
     if message.reply_to_message:
         chat_id = message.reply_to_message.chat.id
     elif len(message.command) > 1:
-        try: chat_id = int(message.command[1])
-        except ValueError: return await message.reply_text("Invalid Chat ID.")
-    if not await db.is_authorized_chat(chat_id): return await message.reply_text("❌ Chat is not authorized.")
-    if await db.remove_authorized_chat(chat_id): await message.reply_text(f"✅ Chat `{chat_id}` has been de-authorized.")
-    else: await message.reply_text("❌ Failed to de-authorize chat.")
+        try:
+            chat_id = int(message.command[1])
+        except ValueError:
+            return await message.reply_text("Invalid Chat ID.")
+    if not await db.is_authorized_chat(chat_id):
+        return await message.reply_text("❌ Chat is not authorized.")
+    if await db.remove_authorized_chat(chat_id):
+        await message.reply_text(f"✅ Chat `{chat_id}` has been de-authorized.")
+    else:
+        await message.reply_text("❌ Failed to de-authorize chat.")
+
 
 # ===================================================================
 # 3. TASK & FILE HANDLERS
 # ===================================================================
 # (No changes needed in v6.0 - DB logic is solid)
+
 
 @app.on_message(filters.command("cancel"))
 async def cancel_handler(client: Client, message: Message, reply: bool = True):
@@ -243,24 +293,31 @@ async def cancel_handler(client: Client, message: Message, reply: bool = True):
     if not task_id:
         running_task = await db.tasks.find_one({
             "user_id": user_id,
-            "status": {"$in": ["pending", "downloading", "processing", "uploading"]}
+            "status": {
+                "$in": ["pending", "downloading", "processing", "uploading"]
+            }
         })
         if running_task:
             task_id = running_task['task_id']
             logger.warning(f"Task {task_id} in DB (stuck). Cleaning up.")
             await db.update_task(task_id, {"status": "cancelled"})
-            if reply: await message.reply_text(config.MSG_TASK_CANCELLED.format(task_id=task_id))
+            if reply:
+                await message.reply_text(
+                    config.MSG_TASK_CANCELLED.format(task_id=task_id))
             return
         else:
             if reply: await message.reply_text(config.MSG_NO_ACTIVE_TASK)
             return
 
     await process_manager.kill_process_async(task_id)
-    user_download_dir = os.path.join(config.DOWNLOAD_DIR, str(user_id), task_id)
+    user_download_dir = os.path.join(config.DOWNLOAD_DIR, str(user_id),
+                                     task_id)
     cleanup_files(user_download_dir)
 
     if reply:
-        await message.reply_text(config.MSG_TASK_CANCELLED.format(task_id=task_id))
+        await message.reply_text(
+            config.MSG_TASK_CANCELLED.format(task_id=task_id))
+
 
 @app.on_message(filters.command("process"))
 async def process_handler(client: Client, message: Message):
@@ -271,7 +328,8 @@ async def process_handler(client: Client, message: Message):
     if not await verify_user_complete(client, message): return
 
     if await db.is_user_task_running(user_id):
-        return await message.reply_text(config.MSG_TASK_IN_PROGRESS, quote=True)
+        return await message.reply_text(config.MSG_TASK_IN_PROGRESS,
+                                        quote=True)
 
     try:
         settings = await db.get_user_settings(user_id)
@@ -281,12 +339,15 @@ async def process_handler(client: Client, message: Message):
         return await message.reply_text("❌ Could not retrieve your settings.")
 
     if active_tool != 'merge':
-        return await message.reply_text(config.MSG_PROCESS_FOR_MERGE_ONLY.format(active_tool=active_tool), quote=True)
+        return await message.reply_text(
+            config.MSG_PROCESS_FOR_MERGE_ONLY.format(active_tool=active_tool),
+            quote=True)
 
     # Import queue_manager
     from modules.queue_manager import queue_manager
-    
-    if not queue_manager.has_queue(user_id) or queue_manager.get_queue_count(user_id) < 2:
+
+    if not queue_manager.has_queue(user_id) or queue_manager.get_queue_count(
+            user_id) < 2:
         return await message.reply_text(config.MSG_MERGE_NO_FILES, quote=True)
 
     if not bot_state.is_bot_active() and user_id not in config.ADMINS:
@@ -301,19 +362,19 @@ async def process_handler(client: Client, message: Message):
     # Get queue and extract messages
     queue_items = queue_manager.get_queue(user_id)
     messages_to_merge = [item['message'] for item in queue_items]
-    
+
     # Clear queue after extracting
     queue_manager.clear_queue(user_id)
 
-    await start_merge_task(client, message, messages_to_merge, user_id, task_id, settings)
+    await start_merge_task(client, message, messages_to_merge, user_id,
+                           task_id, settings)
 
 
-@app.on_message(
-    (filters.video | filters.document | filters.audio | filters.text)
-    & filters.group
-    & ~filters.media_group
-    & ~filters.regex(r'^/')
-)
+@app.on_message((filters.video | filters.document | filters.audio
+                 | filters.text)
+                & filters.group
+                & ~filters.media_group
+                & ~filters.regex(r'^/'))
 async def file_handler(client: Client, message: Message):
     user_id = message.from_user.id
     chat_id = message.chat.id
@@ -322,7 +383,8 @@ async def file_handler(client: Client, message: Message):
     if not await verify_user_complete(client, message): return
 
     if await db.is_user_task_running(user_id):
-        return await message.reply_text(config.MSG_TASK_IN_PROGRESS, quote=True)
+        return await message.reply_text(config.MSG_TASK_IN_PROGRESS,
+                                        quote=True)
 
     try:
         settings = await db.get_user_settings(user_id)
@@ -338,46 +400,57 @@ async def file_handler(client: Client, message: Message):
         return await message.reply_text(config.MSG_USER_ON_HOLD, quote=True)
 
     if not active_tool or active_tool == "none":
-        return await message.reply_text(config.MSG_SELECT_TOOL_FIRST, quote=True)
+        return await message.reply_text(config.MSG_SELECT_TOOL_FIRST,
+                                        quote=True)
 
     is_url = bool(message.text and is_valid_url(message.text))
     is_tg_file = bool(message.video or message.document or message.audio)
 
     if download_mode == "url" and is_tg_file:
-        return await message.reply_text(config.MSG_MODE_MISMATCH_FILE, quote=True)
+        return await message.reply_text(config.MSG_MODE_MISMATCH_FILE,
+                                        quote=True)
     if download_mode == "telegram" and is_url:
-        return await message.reply_text(config.MSG_MODE_MISMATCH_URL, quote=True)
+        return await message.reply_text(config.MSG_MODE_MISMATCH_URL,
+                                        quote=True)
 
     if not is_url and not is_tg_file:
         if message.text: return
-        return await message.reply_text("❌ Invalid input. Please send a file or a valid URL.", quote=True)
+        return await message.reply_text(
+            "❌ Invalid input. Please send a file or a valid URL.", quote=True)
 
     if active_tool == 'merge':
         if download_mode == 'url':
-                 return await message.reply_text(config.MSG_MERGE_URL_REJECTED, quote=True)
+            return await message.reply_text(config.MSG_MERGE_URL_REJECTED,
+                                            quote=True)
 
         # Import queue_manager
         from modules.queue_manager import queue_manager
-        
+
         # Add file to queue with metadata
         file_info = {
-            'message': message,
-            'filename': getattr(message.video or message.document or message.audio, 'file_name', 'Unknown'),
-            'file_size': getattr(message.video or message.document or message.audio, 'file_size', 0)
+            'message':
+            message,
+            'filename':
+            getattr(message.video or message.document or message.audio,
+                    'file_name', 'Unknown'),
+            'file_size':
+            getattr(message.video or message.document or message.audio,
+                    'file_size', 0)
         }
         count = queue_manager.add_to_queue(user_id, file_info)
-        
+
         # Format queue message with visual display
         queue_msg = queue_manager.format_queue_message(
-            user_id, 
+            user_id,
             user_name=message.from_user.first_name,
-            title="Testing [Merge]"
-        )
-        
+            title="Testing [Merge]")
+
         # Get queue keyboard
         keyboard = queue_manager.get_queue_keyboard(user_id)
-        
-        return await message.reply_text(queue_msg, reply_markup=keyboard, quote=True)
+
+        return await message.reply_text(queue_msg,
+                                        reply_markup=keyboard,
+                                        quote=True)
 
     input_source = message.text if is_url else "telegram_file"
     task_id = await db.create_task(user_id, active_tool, input_source)
@@ -392,30 +465,38 @@ async def file_handler(client: Client, message: Message):
 # ===================================================================
 # (No changes needed in v6.0 - DB logic is solid)
 
-async def start_merge_task(client: Client, trigger_message: Message, messages_to_merge: list, user_id: int, task_id: str, settings: dict):
+
+async def start_merge_task(client: Client, trigger_message: Message,
+                           messages_to_merge: list, user_id: int, task_id: str,
+                           settings: dict):
     """Manages the merge task lifecycle."""
     status_message = None
     log_message_id = None
     user = trigger_message.from_user
-    user_download_dir = os.path.join(config.DOWNLOAD_DIR, str(user_id), task_id)
+    user_download_dir = os.path.join(config.DOWNLOAD_DIR, str(user_id),
+                                     task_id)
     output_file_path = None
     downloaded_files = []
 
     cancel_markup = InlineKeyboardMarkup([[
-        InlineKeyboardButton(config.BTN_CANCEL, callback_data=f"task_cancel:{task_id}")
+        InlineKeyboardButton(config.BTN_CANCEL,
+                             callback_data=f"task_cancel:{task_id}")
     ]])
 
     try:
         await db.update_task(task_id, {"status": "starting"})
         status_message = await trigger_message.reply_text(
-            config.MSG_TASK_ACCEPTED.format(task_id=task_id, tool="MERGE", count=len(messages_to_merge)),
+            config.MSG_TASK_ACCEPTED.format(task_id=task_id,
+                                            tool="MERGE",
+                                            count=len(messages_to_merge)),
             quote=True,
-            reply_markup=cancel_markup
-        )
+            reply_markup=cancel_markup)
 
-        log_message_id = await log_manager.create_task_log(client, user, settings, task_id)
+        log_message_id = await log_manager.create_task_log(
+            client, user, settings, task_id)
         await db.update_task(task_id, {"status": "downloading"})
-        await log_manager.update_task_log(client, log_message_id, "Downloading files...")
+        await log_manager.update_task_log(client, log_message_id,
+                                          "Downloading files...")
 
         for i, msg in enumerate(messages_to_merge):
             file_num = i + 1
@@ -423,15 +504,17 @@ async def start_merge_task(client: Client, trigger_message: Message, messages_to
                 config.MSG_DOWNLOAD_MERGE_PROGRESS.format(
                     task_id=task_id,
                     file_num=file_num,
-                    total_files=len(messages_to_merge)
-                ),
-                reply_markup=cancel_markup
-            )
+                    total_files=len(messages_to_merge)),
+                reply_markup=cancel_markup)
 
-            download_path = await download_from_tg(
-                client, msg, user_id, task_id, status_message, log_manager, log_message_id,
-                cancel_markup=cancel_markup
-            )
+            download_path = await download_from_tg(client,
+                                                   msg,
+                                                   user_id,
+                                                   task_id,
+                                                   status_message,
+                                                   log_manager,
+                                                   log_message_id,
+                                                   cancel_markup=cancel_markup)
 
             if not download_path:
                 raise Exception(f"File {file_num} download failed.")
@@ -443,15 +526,15 @@ async def start_merge_task(client: Client, trigger_message: Message, messages_to
 
         # ✅ FIX: Removed extra arguments
         output_file_path = await processor.process_task(
-            client, user_id, task_id, downloaded_files,
-            status_message, log_message_id
-        )
+            client, user_id, task_id, downloaded_files, status_message,
+            log_message_id)
 
         if not output_file_path:
             raise Exception("Processing failed. No output file found.")
 
         # --- Rest of upload logic unchanged ---
-        await log_manager.update_task_log(client, log_message_id, "Preparing filename")
+        await log_manager.update_task_log(client, log_message_id,
+                                          "Preparing filename")
 
         default_filename = os.path.basename(output_file_path).rsplit('.', 1)[0]
         custom_filename = settings.get('custom_filename', default_filename)
@@ -459,111 +542,178 @@ async def start_merge_task(client: Client, trigger_message: Message, messages_to
             custom_filename = default_filename
         custom_filename = custom_filename.strip().replace('/', '_')
 
-        await log_manager.update_task_log(client, log_message_id, "Waiting for Upload Mode")
+        await log_manager.update_task_log(client, log_message_id,
+                                          "Waiting for Upload Mode")
 
         file_size = os.path.getsize(output_file_path)
         upload_choice = settings.get('upload_mode', 'telegram')
 
         if upload_choice == 'telegram' and file_size > config.MAX_TG_UPLOAD_SIZE_BYTES:
-            await status_message.edit_text(
-                config.MSG_FORCE_GOFILE.format(size=get_human_readable_size(file_size)),
-                reply_markup=cancel_markup
-            )
+            await status_message.edit_text(config.MSG_FORCE_GOFILE.format(
+                size=get_human_readable_size(file_size)),
+                                           reply_markup=cancel_markup)
             upload_choice = "gofile"
 
-        await db.update_task(task_id, {"status": "uploading", "upload_target": upload_choice})
-        await log_manager.update_task_log(client, log_message_id, f"Uploading to {upload_choice}")
+        await db.update_task(task_id, {
+            "status": "uploading",
+            "upload_target": upload_choice
+        })
+        await log_manager.update_task_log(client, log_message_id,
+                                          f"Uploading to {upload_choice}")
 
         if upload_choice == "gofile":
-            gofile = GofileUploader(user_id, task_id, status_message, log_manager, log_message_id, client, cancel_markup)
-            gofile_link = await gofile.upload_file(output_file_path, custom_filename)
+            gofile = GofileUploader(user_id, task_id, status_message,
+                                    log_manager, log_message_id, client,
+                                    cancel_markup)
+            gofile_link = await gofile.upload_file(output_file_path,
+                                                   custom_filename)
             await status_message.delete()
-            final_text = config.MSG_UPLOAD_COMPLETE_GOFILE.format(task_id=task_id, user_mention=user.mention, link=gofile_link)
-            await client.send_message(trigger_message.chat.id, final_text, disable_web_page_preview=True)
-            await log_manager.finish_task_log(client, log_message_id, "Complete", file_size, gofile_link)
+            final_text = config.MSG_UPLOAD_COMPLETE_GOFILE.format(
+                task_id=task_id, user_mention=user.mention, link=gofile_link)
+            await client.send_message(trigger_message.chat.id,
+                                      final_text,
+                                      disable_web_page_preview=True)
+            await log_manager.finish_task_log(client, log_message_id,
+                                              "Complete", file_size,
+                                              gofile_link)
 
         else:
-            await log_manager.update_task_log(client, log_message_id, "Waiting for Thumbnail")
+            await log_manager.update_task_log(client, log_message_id,
+                                              "Waiting for Thumbnail")
 
             thumb_path = None
             saved_thumb_id = settings.get("custom_thumbnail")
             if saved_thumb_id:
                 thumb_path = await client.download_media(
                     saved_thumb_id,
-                    file_name=os.path.join(user_download_dir, "thumb.jpg")
-                )
+                    file_name=os.path.join(user_download_dir, "thumb.jpg"))
 
             success, final_size = await upload_to_telegram(
                 client, user, trigger_message.chat.id, output_file_path,
-                status_message, thumb_path, custom_filename,
-                settings, log_manager, log_message_id, task_id,
-                cancel_markup
-            )
+                status_message, thumb_path, custom_filename, settings,
+                log_manager, log_message_id, task_id, cancel_markup)
 
             if success:
-                await log_manager.finish_task_log(client, log_message_id, "Complete", final_size)
+                await log_manager.finish_task_log(client, log_message_id,
+                                                  "Complete", final_size)
             else:
                 raise Exception("Telegram upload failed.")
 
         await db.update_task(task_id, {"status": "completed"})
 
+    # --- START OF BUG FIX ---
     except asyncio.CancelledError:
-        logger.info(f"Task {task_id} was cancelled.")
-        if status_message:
-            await status_message.edit_text(config.MSG_TASK_CANCELLED.format(task_id=task_id), reply_markup=None)
-        if log_message_id:
-            await log_manager.finish_task_log(client, log_message_id, "Cancelled", 0)
-        await db.update_task(task_id, {"status": "cancelled"})
+        logger.warning(
+            f"Task {task_id} (merge) received a CancelledError. Checking source..."
+        )
+
+        # Check karein ki yeh real cancel tha ya fake (connection loss)
+        task_info = await db.get_task(task_id)
+        is_user_cancel = (task_info and task_info.get("status") == "cancelled")
+
+        if is_user_cancel:
+            # Yeh user dwara kiya gaya REAL cancel tha
+            logger.info(
+                f"Task {task_id} (merge) was confirmed cancelled by user.")
+            if status_message:
+                await status_message.edit_text(
+                    config.MSG_TASK_CANCELLED.format(task_id=task_id),
+                    reply_markup=None)
+            if log_message_id:
+                await log_manager.finish_task_log(client, log_message_id,
+                                                  "Cancelled", 0)
+        else:
+            # Yeh ek FAKE cancel tha (e.g., Pyrogram disconnect)
+            error_msg = "Upload failed (connection lost or system interrupt)"
+            logger.error(
+                f"Task {task_id} (merge) failed with a system interrupt (misreported as CancelledError).",
+                exc_info=False)
+            if status_message:
+                await status_message.edit_text(config.MSG_TASK_FAILED.format(
+                    task_id=task_id, error=error_msg),
+                                               reply_markup=None)
+            if log_message_id:
+                await log_manager.finish_task_log(client, log_message_id,
+                                                  f"Failed: {error_msg}", 0)
+
+            # Database ko "failed" set karein (na ki "cancelled")
+            await db.update_task(task_id, {
+                "status": "failed",
+                "error_msg": error_msg
+            })
+
     except Exception as e:
+        # Yeh block ab sirf processing ya download errors ko pakdega
         logger.error(f"Task {task_id} (merge) failed: {e}", exc_info=True)
         if status_message:
             try:
-                await status_message.edit_text(config.MSG_TASK_FAILED.format(task_id=task_id, error=e), reply_markup=None)
+                await status_message.edit_text(config.MSG_TASK_FAILED.format(
+                    task_id=task_id, error=e),
+                                               reply_markup=None)
             except:
                 pass
         if log_message_id:
-            await log_manager.finish_task_log(client, log_message_id, f"Failed: {str(e)}", 0)
-        await db.update_task(task_id, {"status": "failed", "error_msg": str(e)})
+            await log_manager.finish_task_log(client, log_message_id,
+                                              f"Failed: {str(e)}", 0)
+        await db.update_task(task_id, {
+            "status": "failed",
+            "error_msg": str(e)
+        })
+
     finally:
         cleanup_files(user_download_dir)
 
 
-async def start_processing_task(client: Client, message: Message, user_id: int, task_id: str, settings: dict):
+# --- END OF FUNCTION 1 ---
+
+
+async def start_processing_task(client: Client, message: Message, user_id: int,
+                                task_id: str, settings: dict):
     """Manages the standard (single file) task lifecycle"""
     status_message = None
     log_message_id = None
     user = message.from_user
-    user_download_dir = os.path.join(config.DOWNLOAD_DIR, str(user_id), task_id)
+    user_download_dir = os.path.join(config.DOWNLOAD_DIR, str(user_id),
+                                     task_id)
     output_file_path = None
     downloaded_files = []
 
     cancel_markup = InlineKeyboardMarkup([[
-        InlineKeyboardButton(config.BTN_CANCEL, callback_data=f"task_cancel:{task_id}")
+        InlineKeyboardButton(config.BTN_CANCEL,
+                             callback_data=f"task_cancel:{task_id}")
     ]])
 
     try:
         await db.update_task(task_id, {"status": "starting"})
         status_message = await message.reply_text(
-            config.MSG_TASK_ACCEPTED_SINGLE.format(task_id=task_id, tool=settings['active_tool'].upper()),
+            config.MSG_TASK_ACCEPTED_SINGLE.format(
+                task_id=task_id, tool=settings['active_tool'].upper()),
             quote=True,
-            reply_markup=cancel_markup
-        )
+            reply_markup=cancel_markup)
 
-        log_message_id = await log_manager.create_task_log(client, user, settings, task_id)
+        log_message_id = await log_manager.create_task_log(
+            client, user, settings, task_id)
         await db.update_task(task_id, {"status": "downloading"})
-        await log_manager.update_task_log(client, log_message_id, "Initializing Download")
+        await log_manager.update_task_log(client, log_message_id,
+                                          "Initializing Download")
 
         downloader = None
         download_path = None
 
         if settings['download_mode'] == 'url':
-            downloader = YTDLDownloader(user_id, task_id, status_message, log_manager, log_message_id, client, cancel_markup)
+            downloader = YTDLDownloader(user_id, task_id, status_message,
+                                        log_manager, log_message_id, client,
+                                        cancel_markup)
             download_path = await downloader.download(message.text)
         else:
-            download_path = await download_from_tg(
-                client, message, user_id, task_id, status_message, log_manager, log_message_id,
-                cancel_markup=cancel_markup
-            )
+            download_path = await download_from_tg(client,
+                                                   message,
+                                                   user_id,
+                                                   task_id,
+                                                   status_message,
+                                                   log_manager,
+                                                   log_message_id,
+                                                   cancel_markup=cancel_markup)
 
         if not download_path:
             raise Exception("File download failed.")
@@ -574,21 +724,24 @@ async def start_processing_task(client: Client, message: Message, user_id: int, 
 
         # ✅ FIX: Removed extra arguments
         output_file_path = await processor.process_task(
-            client, user_id, task_id, downloaded_files,
-            status_message, log_message_id
-        )
+            client, user_id, task_id, downloaded_files, status_message,
+            log_message_id)
 
         if not output_file_path:
             if settings['active_tool'] == 'mediainfo':
-                await log_manager.finish_task_log(client, log_message_id, "Complete (MediaInfo)", 0)
-                await status_message.edit_text(config.MSG_MEDIAINFO_COMPLETE.format(task_id=task_id), reply_markup=None)
+                await log_manager.finish_task_log(client, log_message_id,
+                                                  "Complete (MediaInfo)", 0)
+                await status_message.edit_text(
+                    config.MSG_MEDIAINFO_COMPLETE.format(task_id=task_id),
+                    reply_markup=None)
                 await db.update_task(task_id, {"status": "completed"})
                 return
             else:
                 raise Exception("Processing failed. No output file found.")
 
         # --- Rest of upload logic unchanged ---
-        await log_manager.update_task_log(client, log_message_id, "Preparing filename")
+        await log_manager.update_task_log(client, log_message_id,
+                                          "Preparing filename")
 
         default_filename = os.path.basename(output_file_path).rsplit('.', 1)[0]
         custom_filename = settings.get('custom_filename', default_filename)
@@ -602,78 +755,130 @@ async def start_processing_task(client: Client, message: Message, user_id: int, 
             if suffix:
                 custom_filename = f"{custom_filename} {suffix}"
 
-        await log_manager.update_task_log(client, log_message_id, "Waiting for Upload Mode")
+        await log_manager.update_task_log(client, log_message_id,
+                                          "Waiting for Upload Mode")
 
         file_size = os.path.getsize(output_file_path)
         upload_choice = settings.get('upload_mode', 'telegram')
 
         if upload_choice == 'telegram' and file_size > config.MAX_TG_UPLOAD_SIZE_BYTES:
-            await status_message.edit_text(
-                config.MSG_FORCE_GOFILE.format(size=get_human_readable_size(file_size)),
-                reply_markup=cancel_markup
-            )
+            await status_message.edit_text(config.MSG_FORCE_GOFILE.format(
+                size=get_human_readable_size(file_size)),
+                                           reply_markup=cancel_markup)
             upload_choice = "gofile"
 
-        await db.update_task(task_id, {"status": "uploading", "upload_target": upload_choice})
-        await log_manager.update_task_log(client, log_message_id, f"Uploading to {upload_choice}")
+        await db.update_task(task_id, {
+            "status": "uploading",
+            "upload_target": upload_choice
+        })
+        await log_manager.update_task_log(client, log_message_id,
+                                          f"Uploading to {upload_choice}")
 
         if upload_choice == "gofile":
-            gofile = GofileUploader(user_id, task_id, status_message, log_manager, log_message_id, client, cancel_markup)
-            gofile_link = await gofile.upload_file(output_file_path, custom_filename)
+            gofile = GofileUploader(user_id, task_id, status_message,
+                                    log_manager, log_message_id, client,
+                                    cancel_markup)
+            gofile_link = await gofile.upload_file(output_file_path,
+                                                   custom_filename)
             await status_message.delete()
-            final_text = config.MSG_UPLOAD_COMPLETE_GOFILE.format(task_id=task_id, user_mention=user.mention, link=gofile_link)
-            await client.send_message(message.chat.id, final_text, disable_web_page_preview=True)
-            await log_manager.finish_task_log(client, log_message_id, "Complete", file_size, gofile_link)
+            final_text = config.MSG_UPLOAD_COMPLETE_GOFILE.format(
+                task_id=task_id, user_mention=user.mention, link=gofile_link)
+            await client.send_message(message.chat.id,
+                                      final_text,
+                                      disable_web_page_preview=True)
+            await log_manager.finish_task_log(client, log_message_id,
+                                              "Complete", file_size,
+                                              gofile_link)
         else:
-            await log_manager.update_task_log(client, log_message_id, "Waiting for Thumbnail")
+            await log_manager.update_task_log(client, log_message_id,
+                                              "Waiting for Thumbnail")
             thumb_path = None
             saved_thumb_id = settings.get("custom_thumbnail")
             if saved_thumb_id:
                 thumb_path = await client.download_media(
                     saved_thumb_id,
-                    file_name=os.path.join(user_download_dir, "thumb.jpg")
-                )
+                    file_name=os.path.join(user_download_dir, "thumb.jpg"))
 
             success, final_size = await upload_to_telegram(
                 client, user, message.chat.id, output_file_path,
-                status_message, thumb_path, custom_filename,
-                settings, log_manager, log_message_id, task_id,
-                cancel_markup
-            )
+                status_message, thumb_path, custom_filename, settings,
+                log_manager, log_message_id, task_id, cancel_markup)
 
             if success:
-                await log_manager.finish_task_log(client, log_message_id, "Complete", final_size)
+                await log_manager.finish_task_log(client, log_message_id,
+                                                  "Complete", final_size)
             else:
                 raise Exception("Telegram upload failed.")
 
         await db.update_task(task_id, {"status": "completed"})
 
+    # --- START OF BUG FIX ---
     except asyncio.CancelledError:
-        logger.info(f"Task {task_id} was cancelled.")
-        if status_message:
-            await status_message.edit_text(config.MSG_TASK_CANCELLED.format(task_id=task_id), reply_markup=None)
-        if log_message_id:
-            await log_manager.finish_task_log(client, log_message_id, "Cancelled", 0)
-        await db.update_task(task_id, {"status": "cancelled"})
+        logger.warning(
+            f"Task {task_id} received a CancelledError. Checking source...")
+
+        # Check karein ki yeh real cancel tha ya fake (connection loss)
+        task_info = await db.get_task(task_id)
+        is_user_cancel = (task_info and task_info.get("status") == "cancelled")
+
+        if is_user_cancel:
+            # Yeh user dwara kiya gaya REAL cancel tha
+            logger.info(f"Task {task_id} was confirmed cancelled by user.")
+            if status_message:
+                await status_message.edit_text(
+                    config.MSG_TASK_CANCELLED.format(task_id=task_id),
+                    reply_markup=None)
+            if log_message_id:
+                await log_manager.finish_task_log(client, log_message_id,
+                                                  "Cancelled", 0)
+        else:
+            # Yeh ek FAKE cancel tha (e.g., Pyrogram disconnect)
+            error_msg = "Upload failed (connection lost or system interrupt)"
+            logger.error(
+                f"Task {task_id} failed with a system interrupt (misreported as CancelledError).",
+                exc_info=False)
+            if status_message:
+                await status_message.edit_text(config.MSG_TASK_FAILED.format(
+                    task_id=task_id, error=error_msg),
+                                               reply_markup=None)
+            if log_message_id:
+                await log_manager.finish_task_log(client, log_message_id,
+                                                  f"Failed: {error_msg}", 0)
+
+            # Database ko "failed" set karein (na ki "cancelled")
+            await db.update_task(task_id, {
+                "status": "failed",
+                "error_msg": error_msg
+            })
+
     except Exception as e:
+        # Yeh block ab sirf processing ya download errors ko pakdega
         logger.error(f"Task {task_id} failed: {e}", exc_info=True)
         if status_message:
             try:
-                await status_message.edit_text(config.MSG_TASK_FAILED.format(task_id=task_id, error=e), reply_markup=None)
+                await status_message.edit_text(config.MSG_TASK_FAILED.format(
+                    task_id=task_id, error=e),
+                                               reply_markup=None)
             except:
                 pass
         if log_message_id:
-            await log_manager.finish_task_log(client, log_message_id, f"Failed: {str(e)}", 0)
-        await db.update_task(task_id, {"status": "failed", "error_msg": str(e)})
+            await log_manager.finish_task_log(client, log_message_id,
+                                              f"Failed: {str(e)}", 0)
+        await db.update_task(task_id, {
+            "status": "failed",
+            "error_msg": str(e)
+        })
+
     finally:
         cleanup_files(user_download_dir)
 
 
-
+# --- END OF FUNCTION 2 ---
 
 # ===================================================================
 # 6. CALLBACK HANDLER (v5.2 - Nested UI Logic)
 # ===================================================================
+
 
 # Helper to refresh the panel
 async def refresh_panel(query: CallbackQuery, panel_type: str):
@@ -687,39 +892,49 @@ async def refresh_panel(query: CallbackQuery, panel_type: str):
             if tool == "merge":
                 image, caption, keyboard = await get_vt_merge_menu(user_id)
             elif tool == "encode":
-                image, caption, keyboard = await get_vt_encode_menu(user_id, menu_type=menu)
+                image, caption, keyboard = await get_vt_encode_menu(
+                    user_id, menu_type=menu)
             elif tool == "trim":
                 image, caption, keyboard = await get_vt_trim_menu(user_id)
             elif tool == "watermark":
-                image, caption, keyboard = await get_vt_watermark_menu(user_id, menu_type=menu)
+                image, caption, keyboard = await get_vt_watermark_menu(
+                    user_id, menu_type=menu)
             elif tool == "sample":
-                image, caption, keyboard = await get_vt_sample_menu(user_id, menu_type=menu)
+                image, caption, keyboard = await get_vt_sample_menu(
+                    user_id, menu_type=menu)
             elif tool == "extract":
                 image, caption, keyboard = await get_vt_extract_menu(user_id)
             elif tool == "extra":
                 image, caption, keyboard = await get_vt_extra_menu(user_id)
             # Extra tools (from extra menu)
             elif tool == "rotate":
-                image, caption, keyboard = await get_vt_rotate_menu(user_id, menu_type=menu)
+                image, caption, keyboard = await get_vt_rotate_menu(
+                    user_id, menu_type=menu)
             elif tool == "flip":
-                image, caption, keyboard = await get_vt_flip_menu(user_id, menu_type=menu)
+                image, caption, keyboard = await get_vt_flip_menu(
+                    user_id, menu_type=menu)
             elif tool == "speed":
-                image, caption, keyboard = await get_vt_speed_menu(user_id, menu_type=menu)
+                image, caption, keyboard = await get_vt_speed_menu(
+                    user_id, menu_type=menu)
             elif tool == "volume":
-                image, caption, keyboard = await get_vt_volume_menu(user_id, menu_type=menu)
+                image, caption, keyboard = await get_vt_volume_menu(
+                    user_id, menu_type=menu)
             elif tool == "crop":
-                image, caption, keyboard = await get_vt_crop_menu(user_id, menu_type=menu)
+                image, caption, keyboard = await get_vt_crop_menu(
+                    user_id, menu_type=menu)
             elif tool == "gif":
-                image, caption, keyboard = await get_vt_gif_menu(user_id, menu_type=menu)
+                image, caption, keyboard = await get_vt_gif_menu(
+                    user_id, menu_type=menu)
             elif tool == "reverse":
-                image, caption, keyboard = await get_vt_reverse_menu(user_id, menu_type=menu)
-            else: # Fallback to main tools menu
+                image, caption, keyboard = await get_vt_reverse_menu(
+                    user_id, menu_type=menu)
+            else:  # Fallback to main tools menu
                 image, caption, keyboard = await get_video_tools_menu(user_id)
 
         # User settings submenu
         elif panel_type.startswith("us:metadata"):
             image, caption, keyboard = await get_metadata_submenu(user_id)
-        
+
         # Puraana logic
         elif panel_type == "start":
             image, caption, keyboard = await get_start_menu(user_id)
@@ -731,20 +946,20 @@ async def refresh_panel(query: CallbackQuery, panel_type: str):
             image, caption, keyboard = await get_admin_menu()
 
         if keyboard:
-            await query.message.edit_media(
-                media=InputMediaPhoto(image, caption=caption),
-                reply_markup=keyboard
-            )
+            await query.message.edit_media(media=InputMediaPhoto(
+                image, caption=caption),
+                                           reply_markup=keyboard)
             await query.answer()
         else:
             await query.answer("Error: Panel not found.")
 
     except MessageNotModified:
-        await query.answer() # Acknowledge click even if no change
+        await query.answer()  # Acknowledge click even if no change
     except QueryIdInvalid:
-        pass # User clicked too fast
+        pass  # User clicked too fast
     except Exception as e:
-        logger.error(f"Error refreshing panel {panel_type}: {e}", exc_info=True)
+        logger.error(f"Error refreshing panel {panel_type}: {e}",
+                     exc_info=True)
         await query.answer("An error occurred.", show_alert=True)
 
 
@@ -774,7 +989,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
 
         # ------------------- 2️⃣ Authorization -------------------
         if not await is_authorized_user(user_id, chat_id):
-            return await query.answer("❌ You are not authorized.", show_alert=True)
+            return await query.answer("❌ You are not authorized.",
+                                      show_alert=True)
 
         # ------------------- 3️⃣ Cancel Task -------------------
         if data.startswith("task_cancel:"):
@@ -783,57 +999,73 @@ async def callback_handler(client: Client, query: CallbackQuery):
             if not info:
                 db_task = await db.get_task(task_id)
                 if not db_task or db_task["user_id"] != user_id:
-                    return await query.answer("❌ Not your task or already finished.", show_alert=True)
-                if db_task["status"] in ["pending", "downloading", "processing", "uploading"]:
+                    return await query.answer(
+                        "❌ Not your task or already finished.",
+                        show_alert=True)
+                if db_task["status"] in [
+                        "pending", "downloading", "processing", "uploading"
+                ]:
                     await db.update_task(task_id, {"status": "cancelled"})
                 else:
-                    return await query.answer("❌ Task already done.", show_alert=True)
+                    return await query.answer("❌ Task already done.",
+                                              show_alert=True)
             elif info["user_id"] != user_id:
-                return await query.answer("❌ This is not your task.", show_alert=True)
+                return await query.answer("❌ This is not your task.",
+                                          show_alert=True)
 
             await process_manager.kill_process_async(task_id)
-            cleanup_files(os.path.join(config.DOWNLOAD_DIR, str(user_id), task_id))
+            cleanup_files(
+                os.path.join(config.DOWNLOAD_DIR, str(user_id), task_id))
             await query.answer("Task Cancelled!", show_alert=True)
-            await query.message.edit_text(config.MSG_TASK_CANCELLED.format(task_id=task_id))
+            await query.message.edit_text(
+                config.MSG_TASK_CANCELLED.format(task_id=task_id))
             return
 
         # ------------------- 4️⃣ Queue Management -------------------
         if data.startswith("queue:"):
             from modules.queue_manager import queue_manager
-            
+
             action = data.split(":", 1)[1]
-            
+
             if action == "add_more":
                 await query.answer("👍 Send more videos to add to queue!")
                 return
-            
+
             elif action == "merge_now":
-                if not queue_manager.has_queue(user_id) or queue_manager.get_queue_count(user_id) < 2:
-                    return await query.answer("❌ Need at least 2 videos in queue", show_alert=True)
-                
+                if not queue_manager.has_queue(
+                        user_id) or queue_manager.get_queue_count(user_id) < 2:
+                    return await query.answer(
+                        "❌ Need at least 2 videos in queue", show_alert=True)
+
                 settings = await db.get_user_settings(user_id)
                 if await db.is_user_task_running(user_id):
-                    return await query.answer("⏳ You have a task running. Please wait.", show_alert=True)
-                
+                    return await query.answer(
+                        "⏳ You have a task running. Please wait.",
+                        show_alert=True)
+
                 # Create task and start merge
-                task_id = await db.create_task(user_id, "merge", "telegram_files")
+                task_id = await db.create_task(user_id, "merge",
+                                               "telegram_files")
                 if not task_id:
-                    return await query.answer("❌ Error creating task", show_alert=True)
-                
+                    return await query.answer("❌ Error creating task",
+                                              show_alert=True)
+
                 # Get queue and extract messages
                 queue_items = queue_manager.get_queue(user_id)
                 messages_to_merge = [item['message'] for item in queue_items]
-                
+
                 # Clear queue
                 queue_manager.clear_queue(user_id)
-                
+
                 await query.answer("🔀 Starting merge process...")
                 await query.message.delete()
-                
+
                 # Start merge task
-                await start_merge_task(client, query.message, messages_to_merge, user_id, task_id, settings)
+                await start_merge_task(client, query.message,
+                                       messages_to_merge, user_id, task_id,
+                                       settings)
                 return
-            
+
             elif action == "clear":
                 queue_manager.clear_queue(user_id)
                 await query.answer("🗑️ Queue cleared!", show_alert=True)
@@ -848,15 +1080,20 @@ async def callback_handler(client: Client, query: CallbackQuery):
             elif panel == "help":
                 await query.message.edit_media(
                     InputMediaPhoto(config.IMG_START, caption=config.MSG_HELP),
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"🔙 {config.BTN_BACK}", callback_data="open:start")]])
-                )
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton(f"🔙 {config.BTN_BACK}",
+                                             callback_data="open:start")
+                    ]]))
                 return await query.answer()
             elif panel == "about":
-                caption = config.MSG_ABOUT.format(bot_name=config.BOT_NAME, developer=config.DEVELOPER)
+                caption = config.MSG_ABOUT.format(bot_name=config.BOT_NAME,
+                                                  developer=config.DEVELOPER)
                 await query.message.edit_media(
                     InputMediaPhoto(config.IMG_START, caption=caption),
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"🔙 {config.BTN_BACK}", callback_data="open:start")]])
-                )
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton(f"🔙 {config.BTN_BACK}",
+                                             callback_data="open:start")
+                    ]]))
                 return await query.answer()
 
         # ------------------- 5️⃣ Core Split Logic -------------------
@@ -874,19 +1111,22 @@ async def callback_handler(client: Client, query: CallbackQuery):
                     settings = await db.get_user_settings(user_id)
                     cur = settings.get(key, "telegram")
                     if isinstance(cur, bool): cur = "telegram"
-                    
+
                     # Toggle logic
                     if key == "upload_mode":
                         new = "gofile" if cur == "telegram" else "telegram"
                     else:  # download_mode
                         new = "url" if cur == "telegram" else "telegram"
-                    
+
                     await db.update_user_setting(user_id, key, new)
-                    await query.answer(f"{key.replace('_',' ').title()} → {new.capitalize()}")
+                    await query.answer(
+                        f"{key.replace('_',' ').title()} → {new.capitalize()}")
                 else:
                     new_val = await db.toggle_user_setting(user_id, key)
-                    await query.answer(f"{key.replace('_',' ').capitalize()} set to {'ON' if new_val else 'OFF'}")
-                
+                    await query.answer(
+                        f"{key.replace('_',' ').capitalize()} set to {'ON' if new_val else 'OFF'}"
+                    )
+
                 # If metadata toggle, stay in metadata submenu
                 if key == "metadata":
                     return await refresh_panel(query, "us:metadata")
@@ -899,17 +1139,18 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 # Handle metadata submenu callbacks
                 if len(parts) < 3:
                     return await query.answer("Invalid metadata action")
-                
+
                 metadata_action = parts[2]
-                
-                if metadata_action == "open" and len(parts) > 3 and parts[3] == "main":
+
+                if metadata_action == "open" and len(
+                        parts) > 3 and parts[3] == "main":
                     return await refresh_panel(query, "us:metadata")
-                
+
                 elif metadata_action == "ask":
                     field = parts[3] if len(parts) > 3 else None
                     if field not in ["title", "artist", "comment"]:
                         return await query.answer("Invalid metadata field")
-                    
+
                     field_name = field.capitalize()
                     await query.answer()
                     try:
@@ -917,20 +1158,23 @@ async def callback_handler(client: Client, query: CallbackQuery):
                             chat_id,
                             f"📝 Enter custom **{field_name}** for your videos:\n\n(Send /cancel to abort)",
                             filters=filters.text,
-                            timeout=300
-                        )
+                            timeout=300)
                         if r.text == "/cancel":
                             return await r.reply_text(config.MSG_SET_CANCELLED)
-                        
-                        await db.update_user_nested_setting(user_id, f"metadata_custom.{field}", r.text)
+
+                        await db.update_user_nested_setting(
+                            user_id, f"metadata_custom.{field}", r.text)
                         await r.reply_text(config.MSG_SET_SUCCESS)
                     except asyncio.TimeoutError:
-                        return await client.send_message(chat_id, config.MSG_SET_TIMEOUT)
-                    
+                        return await client.send_message(
+                            chat_id, config.MSG_SET_TIMEOUT)
+
                     return await refresh_panel(query, "us:metadata")
-                
-                elif metadata_action == "clear" and len(parts) > 3 and parts[3] == "all":
-                    await db.update_user_setting(user_id, "metadata_custom", {})
+
+                elif metadata_action == "clear" and len(
+                        parts) > 3 and parts[3] == "all":
+                    await db.update_user_setting(user_id, "metadata_custom",
+                                                 {})
                     await query.answer("All custom metadata cleared!")
                     return await refresh_panel(query, "us:metadata")
 
@@ -939,18 +1183,31 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 try:
                     if key == "custom_filename":
                         await query.answer()
-                        r = await client.ask(chat_id, config.MSG_ASK_FILENAME, filters=filters.text, timeout=300)
-                        if r.text == "/cancel": return await r.reply_text(config.MSG_SET_CANCELLED)
-                        if " " in r.text or "." in r.text: return await r.reply_text(config.MSG_SET_ERROR_FILENAME)
-                        await db.update_user_setting(user_id, "custom_filename", r.text)
+                        r = await client.ask(chat_id,
+                                             config.MSG_ASK_FILENAME,
+                                             filters=filters.text,
+                                             timeout=300)
+                        if r.text == "/cancel":
+                            return await r.reply_text(config.MSG_SET_CANCELLED)
+                        if " " in r.text or "." in r.text:
+                            return await r.reply_text(
+                                config.MSG_SET_ERROR_FILENAME)
+                        await db.update_user_setting(user_id,
+                                                     "custom_filename", r.text)
                         await r.reply_text(config.MSG_SET_SUCCESS)
                     elif key == "custom_thumbnail":
                         await query.answer()
-                        r = await client.ask(chat_id, config.MSG_ASK_THUMBNAIL, filters=filters.photo, timeout=300)
-                        await db.update_user_setting(user_id, "custom_thumbnail", r.photo.file_id)
+                        r = await client.ask(chat_id,
+                                             config.MSG_ASK_THUMBNAIL,
+                                             filters=filters.photo,
+                                             timeout=300)
+                        await db.update_user_setting(user_id,
+                                                     "custom_thumbnail",
+                                                     r.photo.file_id)
                         await r.reply_text(config.MSG_SET_SUCCESS)
                 except asyncio.TimeoutError:
-                    return await client.send_message(chat_id, config.MSG_SET_TIMEOUT)
+                    return await client.send_message(chat_id,
+                                                     config.MSG_SET_TIMEOUT)
 
             return await refresh_panel(query, "settings")
 
@@ -972,7 +1229,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 settings = await db.get_user_settings(user_id)
                 active = settings.get("active_tool", "none")
                 if active == tool:
-                    await db.update_user_setting(user_id, "active_tool", "none")
+                    await db.update_user_setting(user_id, "active_tool",
+                                                 "none")
                     await query.answer(f"{tool.capitalize()} tool disabled.")
                 else:
                     await db.update_user_setting(user_id, "active_tool", tool)
@@ -994,13 +1252,19 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 if key == "resolution":
                     if value.endswith("_hevc"):
                         base = value.replace("_hevc", "")
-                        await db.update_user_nested_setting(user_id, "encode_settings.resolution", base)
-                        await db.update_user_nested_setting(user_id, "encode_settings.vcodec", "libx265")
-                        await query.answer(f"Set {base.upper()} (HEVC)", show_alert=False)
+                        await db.update_user_nested_setting(
+                            user_id, "encode_settings.resolution", base)
+                        await db.update_user_nested_setting(
+                            user_id, "encode_settings.vcodec", "libx265")
+                        await query.answer(f"Set {base.upper()} (HEVC)",
+                                           show_alert=False)
                     else:
-                        await db.update_user_nested_setting(user_id, "encode_settings.resolution", value)
-                        await db.update_user_nested_setting(user_id, "encode_settings.vcodec", "libx264")
-                        await query.answer(f"Set {value.upper()} (H.264)", show_alert=False)
+                        await db.update_user_nested_setting(
+                            user_id, "encode_settings.resolution", value)
+                        await db.update_user_nested_setting(
+                            user_id, "encode_settings.vcodec", "libx264")
+                        await query.answer(f"Set {value.upper()} (H.264)",
+                                           show_alert=False)
                     return await refresh_panel(query, f"vt:{tool}:resolution")
 
                 # Type conversion for other keys
@@ -1036,7 +1300,8 @@ async def callback_handler(client: Client, query: CallbackQuery):
                         validation = lambda x: 0 <= int(x) <= 51
                     elif key == "abitrate":
                         ask_msg, error_msg = config.MSG_ASK_CUSTOM_ABITRATE, config.MSG_SET_ERROR_BITRATE
-                        validation = lambda x: x.endswith("k") and x[:-1].isdigit()
+                        validation = lambda x: x.endswith(
+                            "k") and x[:-1].isdigit()
                     elif key == "resolution":
                         ask_msg, error_msg = config.MSG_ASK_CUSTOM_RESOLUTION, config.MSG_SET_ERROR_RESOLUTION
                         validation = lambda x: bool(re.match(r"^\d+x\d+$", x))
@@ -1053,65 +1318,80 @@ async def callback_handler(client: Client, query: CallbackQuery):
                     validation = lambda x: x.isdigit() and int(x) > 0
 
                 if not ask_msg:
-                    return await query.answer("⚠️ No input expected for this action.")
-                
+                    return await query.answer(
+                        "⚠️ No input expected for this action.")
+
                 # Ensure error_msg has a default value
                 if not error_msg:
                     error_msg = "❌ Invalid input. Please try again."
 
                 await query.answer()
                 try:
-                    resp = await client.ask(chat_id, ask_msg, filters=filters.text, timeout=300)
-                    if resp.text == "/cancel": return await resp.reply_text(config.MSG_SET_CANCELLED)
-                    if not validation(resp.text): return await resp.reply_text(error_msg)
+                    resp = await client.ask(chat_id,
+                                            ask_msg,
+                                            filters=filters.text,
+                                            timeout=300)
+                    if resp.text == "/cancel":
+                        return await resp.reply_text(config.MSG_SET_CANCELLED)
+                    if not validation(resp.text):
+                        return await resp.reply_text(error_msg)
                     val = resp.text
                     if key == "resolution":
-                        await db.update_user_nested_setting(user_id, "encode_settings.resolution", "custom")
-                        await db.update_user_nested_setting(user_id, db_key, val)
+                        await db.update_user_nested_setting(
+                            user_id, "encode_settings.resolution", "custom")
+                        await db.update_user_nested_setting(
+                            user_id, db_key, val)
                     else:
-                        await db.update_user_nested_setting(user_id, db_key, val)
+                        await db.update_user_nested_setting(
+                            user_id, db_key, val)
                     await resp.reply_text(config.MSG_SET_SUCCESS)
                     return await refresh_panel(query, f"vt:{tool}:main")
                 except asyncio.TimeoutError:
-                    return await client.send_message(chat_id, config.MSG_SET_TIMEOUT)
-            
+                    return await client.send_message(chat_id,
+                                                     config.MSG_SET_TIMEOUT)
+
             # 🔹 QUEUE OPERATIONS (for merge tool)
             elif action == "queue":
                 from modules.queue_manager import queue_manager
-                
+
                 if tool != "merge":
-                    return await query.answer("Queue is only for merge tool!", show_alert=True)
-                
+                    return await query.answer("Queue is only for merge tool!",
+                                              show_alert=True)
+
                 queue_action = payload
-                
+
                 if queue_action == "wait_more":
                     # User wants to add more items - just dismiss
                     await query.answer("Send more files to add to queue!")
                     return
-                
+
                 elif queue_action == "clear":
                     # Clear the queue
                     queue_manager.clear_queue(user_id)
                     await query.answer("Queue cleared!")
                     return await refresh_panel(query, "vt:merge:main")
-                
+
                 elif queue_action == "process":
                     # Start merging - get queue and process
                     queue = queue_manager.get_queue(user_id)
                     if len(queue) < 2:
-                        return await query.answer("Need at least 2 files to merge!", show_alert=True)
-                    
+                        return await query.answer(
+                            "Need at least 2 files to merge!", show_alert=True)
+
                     await query.answer("Starting merge process...")
                     # TODO: Implement actual merge processing with queue files
                     # For now, just clear queue and show message
                     queue_manager.clear_queue(user_id)
-                    await query.message.reply_text("🔀 Merge processing will be implemented in the merge handler!")
+                    await query.message.reply_text(
+                        "🔀 Merge processing will be implemented in the merge handler!"
+                    )
                     return
 
         # ------------------- ADMIN PANEL -------------------
         if prefix == "admin":
             if user_id not in config.ADMINS:
-                return await query.answer("❌ You are not an admin.", show_alert=True)
+                return await query.answer("❌ You are not an admin.",
+                                          show_alert=True)
             act, *payload = parts[1:]
             payload = payload[0] if payload else ""
             if act == "toggle" and payload == "mode":
@@ -1125,17 +1405,24 @@ async def callback_handler(client: Client, query: CallbackQuery):
                 return await query.answer()
             elif act == "show" and payload == "stats":
                 # TODO: Implement full stats feature with metrics, user counts, processing stats, etc.
-                await query.answer("📊 Stats view coming soon.", show_alert=True)
-                logger.info(f"Admin {user_id} requested stats (feature not yet implemented)")
+                await query.answer("📊 Stats view coming soon.",
+                                   show_alert=True)
+                logger.info(
+                    f"Admin {user_id} requested stats (feature not yet implemented)"
+                )
                 return
             elif act == "broadcast":
                 # TODO: Implement broadcast feature with message composition, target selection, rate limiting
-                await query.answer("📣 Broadcast tooling under development.", show_alert=True)
-                logger.info(f"Admin {user_id} requested broadcast (feature not yet implemented)")
+                await query.answer("📣 Broadcast tooling under development.",
+                                   show_alert=True)
+                logger.info(
+                    f"Admin {user_id} requested broadcast (feature not yet implemented)"
+                )
                 return
             elif act == "restart":
                 if user_id not in config.SUDO_USERS:
-                    return await query.answer("❌ Only Sudo Users can restart.", show_alert=True)
+                    return await query.answer("❌ Only Sudo Users can restart.",
+                                              show_alert=True)
                 await query.message.edit_text("🔄 Restarting...")
                 await app.stop()
                 os.execl(sys.executable, sys.executable, *sys.argv)
@@ -1147,11 +1434,11 @@ async def callback_handler(client: Client, query: CallbackQuery):
         safe_answer("⚠️ An error occurred.", show_alert=True)
 
 
-
 # ===================================================================
 # BOT STARTUP
 # ===================================================================
 if __name__ == "__main__":
+
     async def main():
         logger.info(f"🚀 Starting {config.BOT_NAME} (v6.0)...")
         logger.info(f"👑 Owner ID: {config.OWNER_ID}")
@@ -1192,12 +1479,10 @@ if __name__ == "__main__":
         full_admin_commands = base_commands + admin_commands
         for admin_id in config.ADMINS:
             try:
-                await app.set_bot_commands(
-                    full_admin_commands,
-                    scope=BotCommandScopeChat(admin_id)
-                )
+                await app.set_bot_commands(full_admin_commands,
+                                           scope=BotCommandScopeChat(admin_id))
             except Exception:
-                pass # User might have blocked the bot
+                pass  # User might have blocked the bot
 
         # Keep the bot running
         await idle()
@@ -1209,4 +1494,5 @@ if __name__ == "__main__":
     try:
         app.run(main())
     except Exception as e:
-        logger.critical(f"Bot exited with a critical error: {e}", exc_info=True)
+        logger.critical(f"Bot exited with a critical error: {e}",
+                        exc_info=True)
