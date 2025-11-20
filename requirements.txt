@@ -1,0 +1,106 @@
+# SS Video Workstation Bot - Clean Dependencies
+# Python 3.11+ required
+
+# Core Telegram
+pyrogram==2.0.106
+tgcrypto==1.2.5
+pyromod>=1.5
+
+# Database
+motor==3.3.2
+pymongo==4.6.0
+
+# HTTP & Networking
+aiohttp>=3.8.0
+httpx>=0.24.0
+requests>=2.31.0
+aiodns>=3.0.0
+
+# File Operations
+aiofiles>=22.1.0
+python-magic>=0.4.27
+
+# Video Processing
+ffmpeg-python>=0.2.0
+yt-dlp>=2023.10.0
+Pillow>=10.0.0
+matplotlib==3.8.2
+pymediainfo>=6.0.0
+
+# Telegraph Integration
+telegraph==2.2.0
+html-telegraph-poster==0.5.0
+
+# Utilities
+python-dotenv==1.0.0
+humanize>=4.0.0
+psutil>=5.9.0
+rich>=13.0.0
+tenacity>=8.2.0
+asyncio-throttle==1.0.2
+colorlog==6.8.0
+lxml-html-clean==0.4.1
+charset-normalizer>=3.0.0
+colorama>=0.4.6
+uvloop>=0.17.0
+aria2p>=0.11.0
+aiodns
+aiofiles
+aiohttp
+aria2p
+asyncio-throttle
+charset-normalizer
+colorama
+colorlog
+ffmpeg-python
+html-telegraph-poster
+httpx
+humanize
+lxml-html-clean
+matplotlib==3.8.2
+motor==3.3.2
+Pillow
+psutil
+pymediainfo
+pymongo==4.6.0
+pyrogram==2.0.106
+pyromod
+python-dotenv==1.0.0
+python-magic
+requests
+rich
+telegraph==2.2.0
+tenacity
+tgcrypto==1.2.5
+uvloop
+yt-dlp
+aiodns
+aiofiles
+aiohttp
+aria2p
+asyncio-throttle
+charset-normalizer
+colorama
+colorlog
+ffmpeg-python
+html-telegraph-poster
+httpx
+humanize
+lxml-html-clean
+matplotlib
+motor
+Pillow
+psutil
+pymediainfo
+pymongo
+pyrogram
+pyromod
+python-dotenv
+python-magic
+requests
+rich
+telegraph
+tenacity
+tgcrypto
+uvloop
+yt-dlp
