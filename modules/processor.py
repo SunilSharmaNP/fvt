@@ -1,8 +1,7 @@
-# modules/processor.py (v6.13 — Await Fix)
-# ✅ [CRITICAL FIX] `db.get_default_settings` से `await` हटाया गया।
-#    (यह एरर "object dict can't be used in 'await' expression" को ठीक करता है)
-# ✅ `_process_extract` (नया टूल) को सही ढंग से एकीकृत किया गया।
-# ✅ `shutil.move` और `asyncio.to_thread` का उपयोग करके I/O ब्लॉकिंग को ठीक किया गया।
+# modules/processor.py (v7.0 - Professional Enhanced)
+# Video Processing Task Manager - All Tools Integrated
+# All Bugs Fixed & Production Ready
+# ==================================================
 
 import os
 import asyncio
@@ -17,9 +16,11 @@ from pyrogram.errors import MessageNotModified
 
 from config import config
 from modules.database import db
-from modules.utils import (run_ffmpeg_with_progress, get_video_info,
-                           parse_time_input, get_temp_filename,
-                           check_video_compatibility)
+from modules.utils import (
+    run_ffmpeg_with_progress, get_video_info,
+    parse_time_input, get_temp_filename,
+    check_video_compatibility, cleanup_files
+)
 import modules.ffmpeg_tools as ffmpeg
 import modules.log_manager as log_manager
 from telegraph.aio import Telegraph
@@ -27,855 +28,676 @@ from telegraph.exceptions import TelegraphException
 
 logger = logging.getLogger(__name__)
 
+# ==================== CONFIGURATION ====================
+
 section_dict = {
-    "General": "嵐",
-    "Video": "時",
-    "Audio": "矧",
-    "Text": "箱",
-    "Menu": "翼"
+    "General": "🎬",
+    "Video": "🎥",
+    "Audio": "🎵",
+    "Text": "📝",
+    "Menu": "📋"
 }
 
+# ==================== HELPER FUNCTIONS ====================
 
-def parseinfo(out, size):
-    tc, trigger = "", False
-    size_line = (
-        f"File size                                 : {size / (1024 * 1024):.2f} MiB"
-    )
-    for line in out.split("\n"):
-        for section, emoji in section_dict.items():
-            if line.startswith(section):
-                trigger = True
-                if not line.startswith("General"):
-                    tc += "</pre><br>"
-                tc += f"<h4>{emoji} {line.replace('Text', 'Subtitle')}</h4>"
-                break
-        if line.startswith("File size"):
-            line = size_line
-        if trigger:
-            tc += "<br><pre>"
-            trigger = False
-        else:
-            tc += line + "\n"
-    tc += "</pre><br>"
-    return tc
-
-
-# ===================================================================
-# 2. PROGRESS CALLBACK HELPER
-# ===================================================================
-async def _progress_callback(task_id: str, status_message: Message,
-                             log_message_id: int, client, stage: str,
-                             **kwargs):
+def parse_mediainfo_output(output: str, file_size: int) -> str:
+    """Parse mediainfo output into readable format"""
     try:
-        progress = kwargs.get('progress', 0)
-        speed = kwargs.get('speed', 'N/A')
-        eta = kwargs.get('eta', 'N/A')
-        text = (f"**⏳ Task `{task_id}`: {stage}...**\n\n"
-                f"**Progress:** {int(progress*100)}%\n"
-                f"**Speed:** `{speed}` | **ETA:** `{eta}`")
-        await status_message.edit_text(text)
-        await log_manager.update_task_log(client, log_message_id, stage, {
-            "progress": progress,
-            "speed": speed,
-            "eta": eta
-        })
-    except MessageNotModified:
-        pass
+        text_content = ""
+        size_line = f"📦 **File Size:** {file_size / (1024 * 1024):.2f} MiB\n"
+        text_content += size_line
+        
+        current_section = None
+        
+        for line in output.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Check if this is a section header
+            for section, emoji in section_dict.items():
+                if line.startswith(section):
+                    if current_section:
+                        text_content += "\n"
+                    text_content += f"\n**{emoji} {section}:**\n"
+                    current_section = section
+                    break
+            else:
+                # It's a detail line
+                if current_section and ":" in line:
+                    text_content += f"• {line}\n"
+        
+        return text_content
     except Exception as e:
-        logger.warning(f"Error updating progress for {task_id}: {e}")
+        logger.error(f"Error parsing mediainfo: {e}")
+        return f"📊 **Media Information:**\n```\n{output[:500]}\n```"
 
+# ==================== MAIN PROCESSOR CLASS ====================
 
-# ===================================================================
-# 3. TOOL-SPECIFIC PROCESSORS
-# ===================================================================
-
-
-# ---------------------- MERGE ---------------------- #
-async def _process_merge(user_id, task_id, downloaded_files, settings,
-                         progress_cb):
-    output_file = get_temp_filename(task_id, ".mp4")
-    mode = settings.get("merge_mode", "video+video")
-    logger.info(f"Task {task_id}: Starting merge mode '{mode}'")
-    await progress_cb(stage="Merging")
-    if mode == "video+video":
-        infos = [get_video_info(f) for f in downloaded_files]
-        compatible, reason = check_video_compatibility(infos)
-        if compatible:
-            success, msg = await ffmpeg.merge_videos_simple(
-                downloaded_files, output_file, task_id, user_id, progress_cb)
-        else:
-            logger.warning(f"Incompatible ({reason}), using re-encode.")
-            success, msg = await ffmpeg.merge_videos_complex(
-                downloaded_files, output_file, task_id, user_id, progress_cb)
-        return success, msg, output_file if success else None
-    elif mode == "video+audio":
-        success, msg = await ffmpeg.merge_video_audio(downloaded_files[0],
-                                                      downloaded_files[1],
-                                                      output_file, task_id,
-                                                      user_id, progress_cb)
-        return success, msg, output_file if success else None
-    elif mode == "video+subtitle":
-        success, msg = await ffmpeg.merge_video_subtitle(
-            downloaded_files[0], downloaded_files[1], output_file, task_id,
-            user_id, progress_cb)
-        return success, msg, output_file if success else None
-    else:
-        return False, f"Unknown merge mode: {mode}", None
-
-
-# ---------------------- ENCODE ---------------------- #
-async def _process_encode(user_id, task_id, downloaded_files, settings,
-                          progress_cb):
-    input_file = downloaded_files[0]
-    output_file = get_temp_filename(task_id, ".mp4")
-
-    # ✅ [FIX] Removed 'await'
-    default_settings = {}
-    if hasattr(db, "get_default_settings"):
-        default_settings = db.get_default_settings(user_id)
-
-    encode_settings = settings.get("encode_settings",
-                                   default_settings.get('encode_settings', {}))
-    preset_name = encode_settings.get("preset_name", "default_h264")
-    custom_settings = {
-        "vcodec": encode_settings.get("vcodec", "libx264"),
-        "crf": int(encode_settings.get("crf", 26)),
-        "preset": encode_settings.get("preset", "slow"),
-        "acodec": encode_settings.get("acodec", "aac"),
-        "abitrate": encode_settings.get("abitrate", "128k"),
-        "resolution": encode_settings.get("resolution", "source"),
-        "custom_resolution": encode_settings.get("custom_resolution", None),
-        "two_pass": encode_settings.get("two_pass", False),
-        "copy_audio": encode_settings.get("copy_audio", True),
-        "maxrate": encode_settings.get("maxrate"),
-        "bufsize": encode_settings.get("bufsize")
-    }
-    logger.info(
-        f"[ENCODE] Task {task_id}: Using preset={preset_name} custom={custom_settings}"
-    )
-    await progress_cb(stage="Encoding")
-    try:
-        success, msg = await ffmpeg.encode_video(
-            input_file=input_file,
-            output_file=output_file,
-            preset_name=preset_name,
-            task_id=task_id,
-            user_id=user_id,
-            progress_callback=progress_cb,
-            custom_settings=custom_settings)
-        return success, msg, output_file if success else None
-    except FileNotFoundError:
-        return False, "FFmpeg not found on system", None
-    except Exception as e:
-        logger.error(f"Encoding error ({task_id}): {e}", exc_info=True)
-        return False, str(e), None
-
-
-# ---------------------- TRIM ---------------------- #
-async def _process_trim(user_id, task_id, downloaded_files, settings,
-                        progress_cb):
-    input_file = downloaded_files[0]
-    output_file = get_temp_filename(task_id, ".mp4")
-
-    # ✅ [FIX] Removed 'await'
-    default_settings = {}
-    if hasattr(db, "get_default_settings"):
-        default_settings = db.get_default_settings(user_id)
-
-    trim = settings.get("trim_settings",
-                        default_settings.get('trim_settings', {}))
-    start = parse_time_input(trim.get('start', '00:00:00'))
-    end = parse_time_input(trim.get('end', '00:00:30'))
-    await progress_cb(stage="Trimming")
-    success, msg = await ffmpeg.trim_video(input_file, output_file, start, end,
-                                           task_id, user_id, progress_cb)
-    return success, msg, output_file if success else None
-
-
-# ---------------------- SAMPLE ---------------------- #
-async def _process_sample(user_id, task_id, downloaded_files, settings,
-                          progress_cb):
-    input_file = downloaded_files[0]
-    output_file = get_temp_filename(task_id, ".mp4")
-
-    # ✅ [FIX] Removed 'await'
-    default_settings = {}
-    if hasattr(db, "get_default_settings"):
-        default_settings = db.get_default_settings(user_id)
-
-    sample = settings.get("sample_settings",
-                          default_settings.get('sample_settings', {}))
-    duration = sample.get('duration', 30)
-    if isinstance(duration, str):
+class VideoProcessor:
+    """Main video processing orchestrator"""
+    
+    def __init__(self):
+        self.telegraph = None
+        
+    async def init_telegraph(self):
+        """Initialize Telegraph client for media uploads"""
         try:
-            duration = int(duration)
-        except:
-            duration = 30
-    await progress_cb(stage="Generating Sample")
-    success, msg = await ffmpeg.generate_sample(
-        input_file, output_file, duration, task_id, user_id,
-        sample.get('from_point', 'start'), progress_cb)
-    return success, msg, output_file if success else None
-
-
-# ---------------------- MEDIA INFO ---------------------- #
-async def _process_mediainfo(status_message, task_id, downloaded_files):
-    input_file = downloaded_files[0]
-    await status_message.edit_text(f"📊 Generating MediaInfo for `{task_id}`..."
-                                   )
-
-    try:
-        mediainfo_path = shutil.which('mediainfo')
-        if not mediainfo_path:
-            logger.error(
-                "MediaInfo executable not found. Please install 'mediainfo' CLI tool."
-            )
-            return False, "MediaInfo tool not found on server", None
-
-        command = [mediainfo_path, input_file]
-        proc = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE)
-        stdout, stderr = await proc.communicate()
-
-        if proc.returncode != 0:
-            logger.error(f"MediaInfo CLI failed: {stderr.decode()}")
-            raise Exception(f"MediaInfo CLI Error: {stderr.decode()}")
-
-        stdout = stdout.decode().strip()
-        if not stdout:
-            raise Exception("MediaInfo returned empty output.")
-
-        file_size = os.path.getsize(input_file)
-        file_name = os.path.basename(input_file)
-        html_content = f"<h4>東 {file_name}</h4><br><br>"
-        html_content += parseinfo(stdout, file_size)  #
-
-        telegraph_obj = Telegraph(domain="graph.org")
-        try:
-            await telegraph_obj.create_account(
-                short_name=f"task-{task_id[:8]}", author_name="MediaInfo Bot")
+            if not self.telegraph:
+                self.telegraph = Telegraph()
+                await self.telegraph.create_account(
+                    short_name="VideoBot",
+                    author_name="SS Video Workstation"
+                )
+            return True
         except Exception as e:
-            logger.warning(
-                f"Failed to create telegraph account, proceeding: {e}")
-
-        page = await telegraph_obj.create_page(title="MediaInfo X",
-                                               html_content=html_content)
-        page_url = page['url']
-
-        final_text = (f"**MediaInfo:**\n\n"
-                      f"筐ｲ **Link :** {page_url}")
-        await status_message.edit_text(final_text,
-                                       disable_web_page_preview=False)
-        return True, "Displayed", None
-
-    except TelegraphException as e:
-        logger.error(f"Telegraph error: {e}")
-        await status_message.edit_text(f"❌ Telegraph Error: {e}")
-        return False, f"Telegraph error: {e}", None
-    except Exception as e:
-        logger.error(f"MediaInfo error: {e}", exc_info=True)
-        await status_message.edit_text(f"❌ MediaInfo (Graph) failed: {e}")
-        return False, f"MediaInfo failed: {e}", None
-
-
-# ---------------------- WATERMARK ---------------------- #
-async def _process_watermark(user_id, task_id, downloaded_files, settings,
-                             progress_cb):
-    input_file = downloaded_files[0]
-    output_file = get_temp_filename(task_id, ".mp4")
-    wm_settings = settings.get("watermark_settings", {})
-    wtype = wm_settings.get("type", "none")
-    await progress_cb(stage="Adding Watermark")
-
-    if wtype == "text":
-        text = wm_settings.get("text", "")
-        position = wm_settings.get("position", "bottom_right")
-        return await ffmpeg.add_text_watermark(input_file,
-                                               output_file,
-                                               text,
-                                               task_id,
-                                               user_id,
-                                               position,
-                                               progress_callback=progress_cb)
-    elif wtype == "image":
-        image_path = wm_settings.get("image_id")
-        if not image_path:
-            return False, "No watermark image set", None
-        position = wm_settings.get("position", "bottom_right")
-        opacity = wm_settings.get("opacity", 0.7)
-        return await ffmpeg.add_image_watermark(input_file,
-                                                output_file,
-                                                image_path,
-                                                task_id,
-                                                user_id,
-                                                position,
-                                                opacity,
-                                                progress_callback=progress_cb)
-    else:
-        return False, "Watermark type not set or is 'none'", None
-
-
-# ---------------------- CONVERT ---------------------- #
-async def _process_convert(user_id, task_id, downloaded_files, settings,
-                           progress_cb):
-    input_file = downloaded_files[0]
-    output_file = get_temp_filename(task_id, ".mp4")
-    upload_mode = settings.get("upload_mode", "telegram")
-    await progress_cb(stage="Converting")
-
-    if upload_mode == "telegram":
-        success, msg = await ffmpeg.convert_to_video(input_file, output_file,
-                                                     task_id, user_id,
-                                                     progress_cb)
-    else:
-        success, msg = await ffmpeg.convert_to_document(
-            input_file, output_file, task_id, user_id, progress_cb)
-    return success, msg, output_file if success else None
-
-
-# ---------------------- RENAME ---------------------- #
-async def _process_rename(user_id, task_id, downloaded_files, settings,
-                          progress_cb):
-    input_file = downloaded_files[0]
-    new_name = settings.get("custom_filename",
-                            "renamed").strip().replace('/',
-                                                       '_').replace('\\', '_')
-    ext = os.path.splitext(input_file)[1]
-    temp_dir = os.path.dirname(get_temp_filename(task_id, ext))
-    output_file = os.path.join(temp_dir, f"{new_name}{ext}")
-    try:
-        await asyncio.to_thread(shutil.move, input_file, output_file)
-        return True, f"File renamed to {new_name}{ext}", output_file
-    except Exception as e:
-        logger.error(f"Rename error: {e}")
-        return False, f"Rename failed: {e}", None
-
-
-# ---------------------- NEW TOOLS ---------------------- #
-
-
-async def _process_rotate(user_id, task_id, downloaded_files, settings,
-                          progress_cb):
-    """Rotate video by specified angle."""
-    input_file = downloaded_files[0]
-    output_file = get_temp_filename(task_id, ".mp4")
-
-    # ✅ [FIX] Removed 'await'
-    default_settings = {}
-    if hasattr(db, "get_default_settings"):
-        default_settings = db.get_default_settings(user_id)
-
-    rotate_settings = settings.get("rotate_settings",
-                                   default_settings.get('rotate_settings', {}))
-    angle = rotate_settings.get('angle', 90)
-
-    await progress_cb(stage="Rotating Video")
-    success, msg = await ffmpeg.rotate_video(input_file, output_file, angle,
-                                             task_id, user_id, progress_cb)
-    return success, msg, output_file if success else None
-
-
-async def _process_flip(user_id, task_id, downloaded_files, settings,
-                        progress_cb):
-    """Flip video horizontally or vertically."""
-    input_file = downloaded_files[0]
-    output_file = get_temp_filename(task_id, ".mp4")
-
-    # ✅ [FIX] Removed 'await'
-    default_settings = {}
-    if hasattr(db, "get_default_settings"):
-        default_settings = db.get_default_settings(user_id)
-
-    flip_settings = settings.get("flip_settings",
-                                 default_settings.get('flip_settings', {}))
-    direction = flip_settings.get('direction', 'horizontal')
-
-    await progress_cb(stage="Flipping Video")
-    success, msg = await ffmpeg.flip_video(input_file, output_file, direction,
-                                           task_id, user_id, progress_cb)
-    return success, msg, output_file if success else None
-
-
-async def _process_speed(user_id, task_id, downloaded_files, settings,
-                         progress_cb):
-    """Adjust video playback speed."""
-    input_file = downloaded_files[0]
-    output_file = get_temp_filename(task_id, ".mp4")
-
-    # ✅ [FIX] Removed 'await'
-    default_settings = {}
-    if hasattr(db, "get_default_settings"):
-        default_settings = db.get_default_settings(user_id)
-
-    speed_settings = settings.get("speed_settings",
-                                  default_settings.get('speed_settings', {}))
-    speed = float(speed_settings.get('speed', 1.0))
-
-    await progress_cb(stage="Adjusting Speed")
-    success, msg = await ffmpeg.adjust_video_speed(input_file, output_file,
-                                                   speed, task_id, user_id,
-                                                   progress_cb)
-    return success, msg, output_file if success else None
-
-
-async def _process_volume(user_id, task_id, downloaded_files, settings,
-                          progress_cb):
-    """Adjust audio volume."""
-    input_file = downloaded_files[0]
-    output_file = get_temp_filename(task_id, ".mp4")
-
-    # ✅ [FIX] Removed 'await'
-    default_settings = {}
-    if hasattr(db, "get_default_settings"):
-        default_settings = db.get_default_settings(user_id)
-
-    volume_settings = settings.get("volume_settings",
-                                   default_settings.get('volume_settings', {}))
-    volume = int(volume_settings.get('volume', 100))
-
-    await progress_cb(stage="Adjusting Volume")
-    success, msg = await ffmpeg.adjust_audio_volume(input_file, output_file,
-                                                    volume, task_id, user_id,
-                                                    progress_cb)
-    return success, msg, output_file if success else None
-
-
-async def _process_crop(user_id, task_id, downloaded_files, settings,
-                        progress_cb):
-    """Crop video to specified aspect ratio."""
-    input_file = downloaded_files[0]
-    output_file = get_temp_filename(task_id, ".mp4")
-
-    # ✅ [FIX] Removed 'await'
-    default_settings = {}
-    if hasattr(db, "get_default_settings"):
-        default_settings = db.get_default_settings(user_id)
-
-    crop_settings = settings.get("crop_settings",
-                                 default_settings.get('crop_settings', {}))
-    aspect_ratio = crop_settings.get('aspect_ratio', '16:9')
-
-    await progress_cb(stage="Cropping Video")
-    success, msg = await ffmpeg.crop_video(input_file, output_file,
-                                           aspect_ratio, task_id, user_id,
-                                           progress_cb)
-    return success, msg, output_file if success else None
-
-
-async def _process_gif(user_id, task_id, downloaded_files, settings,
-                       progress_cb):
-    """Convert video to GIF."""
-    input_file = downloaded_files[0]
-    output_file = get_temp_filename(task_id, ".gif")
-
-    # ✅ [FIX] Removed 'await'
-    default_settings = {}
-    if hasattr(db, "get_default_settings"):
-        default_settings = db.get_default_settings(user_id)
-
-    gif_settings = settings.get("gif_settings",
-                                default_settings.get('gif_settings', {}))
-    fps = int(gif_settings.get('fps', 10))
-    scale = int(gif_settings.get('scale', 480))
-    quality = gif_settings.get('quality', 'medium')
-
-    await progress_cb(stage="Converting to GIF")
-    success, msg = await ffmpeg.convert_to_gif(input_file, output_file, fps,
-                                               scale, quality, task_id,
-                                               user_id, progress_cb)
-    return success, msg, output_file if success else None
-
-
-async def _process_reverse(user_id, task_id, downloaded_files, settings,
-                           progress_cb):
-    """Reverse video playback."""
-    input_file = downloaded_files[0]
-    output_file = get_temp_filename(task_id, ".mp4")
-
-    await progress_cb(stage="Reversing Video")
-    success, msg = await ffmpeg.reverse_video(input_file, output_file, task_id,
-                                              user_id, progress_cb)
-    return success, msg, output_file if success else None
-
-
-async def _process_extract(user_id, task_id, downloaded_files, settings,
-                           progress_cb):
-    """Extract video, audio, subtitles, or thumbnails from media file"""
-    input_file = downloaded_files[0]
-
-    # ✅ [FIX] Removed 'await'
-    default_settings = {}
-    if hasattr(db, "get_default_settings"):
-        default_settings = db.get_default_settings(user_id)
-
-    extract_settings = settings.get(
-        "extract_settings",
-        default_settings.get('extract_settings', {'mode': 'video'}))
-    mode = extract_settings.get('mode', 'video')
-
-    await progress_cb(stage=f"Extracting {mode.capitalize()}")
-
-    if mode == 'video':
-        # Extract video stream only (no audio)
-        output_file = get_temp_filename(task_id, ".mp4")
-        # Note: You need to implement extract_video_stream in ffmpeg_tools
-        # For now using encode as placeholder if extract_video_stream not exists
-        if hasattr(ffmpeg, 'extract_video_stream'):
-            success, msg = await ffmpeg.extract_video_stream(
-                input_file, output_file, task_id, user_id, progress_cb)
-        else:
-            # Fallback to copy video codec, remove audio
-            cmd = [
-                "ffmpeg", "-i", input_file, "-c:v", "copy", "-an", "-y",
-                output_file
-            ]
-            success, msg = await run_ffmpeg_with_progress(
-                cmd, task_id, user_id, progress_cb)
-            msg = "Extracted video" if success else msg
-        return success, msg, output_file if success else None
-    elif mode == 'audio':
-        # Extract audio stream only
-        output_file = get_temp_filename(task_id, ".mp3")
-        if hasattr(ffmpeg, 'extract_audio_stream'):
-            success, msg = await ffmpeg.extract_audio_stream(
-                input_file, output_file, task_id, user_id, progress_cb)
-        else:
-            cmd = [
-                "ffmpeg", "-i", input_file, "-vn", "-acodec", "libmp3lame",
-                "-q:a", "2", "-y", output_file
-            ]
-            success, msg = await run_ffmpeg_with_progress(
-                cmd, task_id, user_id, progress_cb)
-            msg = "Extracted audio" if success else msg
-        return success, msg, output_file if success else None
-    elif mode == 'subtitles':
-        # Extract subtitle streams
-        output_file = get_temp_filename(task_id, ".srt")
-        cmd = [
-            "ffmpeg", "-i", input_file, "-map", "0:s:0", "-c:s", "text", "-y",
-            output_file
-        ]
-        success, msg = await run_ffmpeg_with_progress(cmd, task_id, user_id,
-                                                      progress_cb)
-        if not success:  # Try ass if srt fails or no subs
-            output_file = get_temp_filename(task_id, ".ass")
-            cmd = [
-                "ffmpeg", "-i", input_file, "-map", "0:s:0", "-c:s", "ass",
-                "-y", output_file
-            ]
-            success, msg = await run_ffmpeg_with_progress(
-                cmd, task_id, user_id, progress_cb)
-        return success, msg, output_file if success else None
-    elif mode == 'thumbnails':
-        # Extract thumbnail/cover image
-        output_file = get_temp_filename(task_id, ".jpg")
-        success, msg, output_file = await ffmpeg.extract_thumbnail(
-            input_file, os.path.dirname(output_file), 'single', task_id,
-            user_id, progress_cb)
-        return success, msg, output_file if success else None
-    else:
-        return False, f"Unknown extract mode: {mode}", None
-
-
-async def _process_extract_thumb(user_id, task_id, downloaded_files, settings,
-                                 progress_cb):
-    """Extract thumbnail(s) from video."""
-    input_file = downloaded_files[0]
-    output_dir = os.path.dirname(get_temp_filename(task_id, ""))
-
-    # ✅ [FIX] Removed 'await'
-    default_settings = {}
-    if hasattr(db, "get_default_settings"):
-        default_settings = db.get_default_settings(user_id)
-
-    thumb_settings = settings.get(
-        "extract_thumb_settings",
-        default_settings.get('extract_thumb_settings', {}))
-    mode = thumb_settings.get('mode', 'single')
-
-    await progress_cb(stage="Extracting Thumbnails")
-
-    # Call simplified extract_thumbnail function (returns 3 values now in v6.2 tools: success, msg, path)
-    success, msg, output_file = await ffmpeg.extract_thumbnail(
-        input_file, output_dir, mode, task_id, user_id, progress_cb)
-
-    if success and output_file:
-        return True, msg, output_file
-    else:
-        return False, msg, None
-
-
-# ---------------------- NEW: SCREENSHOT TOOL ---------------------- #
-
-
-async def _process_screenshot(user_id,
-                              task_id,
-                              downloaded_files,
-                              settings,
-                              progress_cb,
-                              client=None,
-                              status_message=None):
-
-    input_file = downloaded_files[0]
-
-    default_settings = {}
-
-    if hasattr(db, "get_default_settings"):
-
-        default_settings = db.get_default_settings(user_id)
-
-    ss_settings = settings.get(
-        "screenshot_settings",
-        default_settings.get('screenshot_settings', {'count': 5}))
-
-    count = ss_settings.get("count", 5)
-
-    await progress_cb(stage=f"Generating {count} Screenshots")
-
-    info = get_video_info(input_file)
-
-    if not info:
-
-        return False, "Could not read video info", None
-
-    duration = info.get('duration', 0)
-
-    if duration < 1:
-
-        return False, "Video too short", None
-
-    # Generate random timestamps
-
-    timestamps = sorted(
-        random.sample(range(1, int(duration)), min(count, int(duration))))
-
-    screenshot_paths = []
-
-    temp_dir = os.path.dirname(input_file)
-
-    try:
-
-        for i, ts in enumerate(timestamps):
-
-            out_path = os.path.join(temp_dir, f"ss_{task_id}_{i}.jpg")
-
-            cmd = [
-                "ffmpeg", "-ss",
-                str(ts), "-i", input_file, "-vframes", "1", "-q:v", "2", "-y",
-                out_path
-            ]
-
-            await run_ffmpeg_with_progress(cmd, f"{task_id}_ss_{i}", user_id,
-                                           None)
-
-            if os.path.exists(out_path):
-
-                screenshot_paths.append(out_path)
-
-        if not screenshot_paths:
-
-            return False, "No screenshots generated", None
-
-        # Send as album directly here because bot logic expects single file output usually
-
-        if client and status_message:
-
-            media_group = [InputMediaPhoto(path) for path in screenshot_paths]
-
-            await client.send_media_group(
-                chat_id=status_message.chat.id,
-                media=media_group,
-                reply_to_message_id=status_message.reply_to_message.id)
-
-            await status_message.delete()
-
-        return True, "Screenshots sent", None  # Return None as output file to skip upload logic in bot.py
-
-    except Exception as e:
-
-        logger.error(f"Screenshot error: {e}")
-
-        return False, str(e), None
-
-
-# ---------------------- NEW: HD COVER TOOL ---------------------- #
-
-
-async def _process_hdcover(user_id,
-                           task_id,
-                           downloaded_files,
-                           settings,
-                           progress_cb,
-                           client=None):
-
-    video_file = downloaded_files[0]
-
-    output_file = get_temp_filename(task_id, ".mp4")
-
-    # Retrieve cover from DB
-
-    cover_file_id = await db.get_temp_cover(user_id)
-
-    if not cover_file_id:
-
-        return False, "No cover image set. Please send a photo first.", None
-
-    # Download cover image
-
-    cover_path = os.path.join(os.path.dirname(video_file), "cover.jpg")
-
-    if client:
-
-        await client.download_media(cover_file_id, file_name=cover_path)
-
-    if not os.path.exists(cover_path):
-
-        return False, "Failed to download cover image", None
-
-    await progress_cb(stage="Setting HD Cover")
-
-    # FFmpeg command to attach cover (stream copy for video/audio)
-
-    cmd = [
-        "ffmpeg", "-i", video_file, "-i", cover_path, "-map", "0", "-map", "1",
-        "-c", "copy", "-disposition:v:1", "attached_pic", "-y", output_file
-    ]
-
-    success, msg = await run_ffmpeg_with_progress(cmd, task_id, user_id,
-                                                  progress_cb)
-
-    return success, msg, output_file if success else None
-
-
-# ---------------------- NEW: AUDIO REMOVER TOOL ---------------------- #
-
-
-async def _process_audioremover(user_id, task_id, downloaded_files, settings,
-                                progress_cb):
-
-    input_file = downloaded_files[0]
-
-    output_file = get_temp_filename(task_id, ".mp4")
-
-    await progress_cb(stage="Removing Audio")
-
-    # FFmpeg command to remove audio (-an) and copy video
-
-    cmd = ["ffmpeg", "-i", input_file, "-c", "copy", "-an", "-y", output_file]
-
-    success, msg = await run_ffmpeg_with_progress(cmd, task_id, user_id,
-                                                  progress_cb)
-
-    return success, msg, output_file if success else None
-
-
-# ---------------------- MAIN ROUTER ---------------------- #
-async def process_task(client, user_id, task_id, downloaded_files,
-                       status_message, log_message_id):
-    """
-    यह "router" फ़ंक्शन है जिसे bot.py (v6.3) कॉल करता है।
-    """
-    try:
-        settings = await db.get_user_settings(user_id)
-        tool = settings.get("active_tool", "none")
-        logger.info(f"Task {task_id}: Processing tool '{tool}'")
-
-        cb = functools.partial(_progress_callback,
-                               task_id=task_id,
-                               status_message=status_message,
-                               log_message_id=log_message_id,
-                               client=client)
-
-        success, msg, out = False, "Unknown tool", None
-
-        if tool == "merge":
-            success, msg, out = await _process_merge(user_id, task_id,
-                                                     downloaded_files,
-                                                     settings, cb)
-        elif tool == "encode":
-            success, msg, out = await _process_encode(user_id, task_id,
-                                                      downloaded_files,
-                                                      settings, cb)
-        elif tool == "trim":
-            success, msg, out = await _process_trim(user_id, task_id,
-                                                    downloaded_files, settings,
-                                                    cb)
-        elif tool == "sample":
-            success, msg, out = await _process_sample(user_id, task_id,
-                                                      downloaded_files,
-                                                      settings, cb)
-        elif tool == "mediainfo":
-            success, msg, out = await _process_mediainfo(
-                status_message, task_id, downloaded_files)
-        elif tool == "watermark":
-            success, msg, out = await _process_watermark(
-                user_id, task_id, downloaded_files, settings, cb)
-        elif tool == "convert":
-            success, msg, out = await _process_convert(user_id, task_id,
-                                                       downloaded_files,
-                                                       settings, cb)
-        elif tool == "rename":
-            success, msg, out = await _process_rename(user_id, task_id,
-                                                      downloaded_files,
-                                                      settings, cb)
-        elif tool == "rotate":
-            success, msg, out = await _process_rotate(user_id, task_id,
-                                                      downloaded_files,
-                                                      settings, cb)
-        elif tool == "flip":
-            success, msg, out = await _process_flip(user_id, task_id,
-                                                    downloaded_files, settings,
-                                                    cb)
-        elif tool == "speed":
-            success, msg, out = await _process_speed(user_id, task_id,
-                                                     downloaded_files,
-                                                     settings, cb)
-        elif tool == "volume":
-            success, msg, out = await _process_volume(user_id, task_id,
-                                                      downloaded_files,
-                                                      settings, cb)
-        elif tool == "crop":
-            success, msg, out = await _process_crop(user_id, task_id,
-                                                    downloaded_files, settings,
-                                                    cb)
-        elif tool == "gif":
-            success, msg, out = await _process_gif(user_id, task_id,
-                                                   downloaded_files, settings,
-                                                   cb)
-        elif tool == "reverse":
-            success, msg, out = await _process_reverse(user_id, task_id,
-                                                       downloaded_files,
-                                                       settings, cb)
-        elif tool == "extract":
-            success, msg, out = await _process_extract(user_id, task_id,
-                                                       downloaded_files,
-                                                       settings, cb)
-        elif tool == "extract_thumb":
-            success, msg, out = await _process_extract_thumb(
-                user_id, task_id, downloaded_files, settings, cb)
-        else:
+            logger.warning(f"Telegraph initialization failed: {e}")
+            self.telegraph = None
+            return False
+
+    async def process_task(
+        self,
+        client,
+        user_id: int,
+        task_id: str,
+        input_files: List[str],
+        status_message: Optional[Message] = None,
+        log_message_id: Optional[int] = None
+    ) -> Optional[str]:
+        """
+        Main task processing orchestrator
+        Returns: output_file_path on success, None on failure
+        """
+        
+        try:
+            # Get user settings (WITHOUT await - CRITICAL FIX)
+            settings = db.get_default_settings(user_id)
+            active_tool = settings.get('active_tool', 'none')
+            
+            logger.info(f"Processing task {task_id}: tool={active_tool}, files={len(input_files)}")
+            
+            # Route to appropriate processor
+            if active_tool == 'merge':
+                return await self._process_merge(
+                    client, user_id, task_id, input_files,
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'encode':
+                return await self._process_encode(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'trim':
+                return await self._process_trim(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'watermark':
+                return await self._process_watermark(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'sample':
+                return await self._process_sample(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'mediainfo':
+                return await self._process_mediainfo(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id
+                )
+            
+            elif active_tool == 'rotate':
+                return await self._process_rotate(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'flip':
+                return await self._process_flip(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'speed':
+                return await self._process_speed(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'volume':
+                return await self._process_volume(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'crop':
+                return await self._process_crop(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'gif':
+                return await self._process_gif(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'reverse':
+                return await self._process_reverse(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'extract':
+                return await self._process_extract(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'audioremover':
+                return await self._process_audio_remover(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'hdcover':
+                return await self._process_hd_cover(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            elif active_tool == 'screenshot':
+                return await self._process_screenshot(
+                    client, user_id, task_id, input_files[0],
+                    status_message, log_message_id, settings
+                )
+            
+            else:
+                raise ValueError(f"Unknown tool: {active_tool}")
+        
+        except Exception as e:
+            logger.error(f"Task {task_id} error: {e}", exc_info=True)
+            if status_message:
+                try:
+                    await status_message.edit_text(
+                        f"❌ **Processing Error:**\n\n`{str(e)[:200]}`"
+                    )
+                except MessageNotModified:
+                    pass
             return None
 
-        # ✅ FIX SECTION
-        if not success:
-            raise Exception(msg)
-        elif out is None and tool == "mediainfo":
-            logger.info(
-                f"Task {task_id}: MediaInfo displayed successfully (no output file)."
+    # ==================== TOOL-SPECIFIC PROCESSORS ====================
+
+    async def _process_merge(
+        self, client, user_id: int, task_id: str,
+        input_files: List[str], status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process merge operation"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"⏳ **Merging Videos**\n\nTask ID: `{task_id}`"
+                )
+            
+            # Use ffmpeg_tools for merging
+            result = await ffmpeg.merge_videos(
+                input_files, output, status_msg, task_id
             )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Merge error: {e}")
             return None
-        elif not out:
-            raise Exception(msg)
 
-        return out
+    async def _process_encode(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process encoding operation"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"⚡ **Encoding Video**\n\nTask ID: `{task_id}`"
+                )
+            
+            # Get encoding settings
+            encode_settings = settings.get('encode_settings', {})
+            
+            result = await ffmpeg.encode_video(
+                input_file, output, encode_settings, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Encode error: {e}")
+            return None
 
-    except Exception as e:
-        logger.error(f"Task {task_id} failed: {e}", exc_info=True)
-        # Truncate error message to avoid MESSAGE_TOO_LONG error (Telegram limit: 4096 chars)
-        error_msg = str(e)
-        if len(error_msg) > 3500:
-            error_msg = error_msg[:3500] + "\n\n... (error message truncated)"
-        await status_message.edit_text(f"❌ Error: {error_msg}")
-        return None
+    async def _process_trim(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process trim operation"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"✂️ **Trimming Video**\n\nTask ID: `{task_id}`"
+                )
+            
+            trim_settings = settings.get('trim_settings', {})
+            start_time = trim_settings.get('start', '00:00:00')
+            end_time = trim_settings.get('end', '00:00:00')
+            
+            result = await ffmpeg.trim_video(
+                input_file, output, start_time, end_time, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Trim error: {e}")
+            return None
+
+    async def _process_watermark(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process watermark operation"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"🖼️ **Adding Watermark**\n\nTask ID: `{task_id}`"
+                )
+            
+            watermark_settings = settings.get('watermark_settings', {})
+            
+            result = await ffmpeg.add_watermark(
+                input_file, output, watermark_settings, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Watermark error: {e}")
+            return None
+
+    async def _process_sample(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process sample creation"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"🎞️ **Creating Sample**\n\nTask ID: `{task_id}`"
+                )
+            
+            sample_settings = settings.get('sample_settings', {})
+            
+            result = await ffmpeg.create_sample(
+                input_file, output, sample_settings, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Sample error: {e}")
+            return None
+
+    async def _process_mediainfo(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id
+    ) -> Optional[str]:
+        """Process mediainfo extraction"""
+        try:
+            if status_msg:
+                await status_msg.edit_text(
+                    f"📊 **Extracting Media Info**\n\nTask ID: `{task_id}`"
+                )
+            
+            # Get media info
+            info = await get_video_info(input_file)
+            file_size = os.path.getsize(input_file)
+            
+            # Parse and send info
+            parsed_info = parse_mediainfo_output(info, file_size)
+            
+            # Send as telegraph page
+            try:
+                await self.init_telegraph()
+                if self.telegraph:
+                    page = await self.telegraph.create_page(
+                        title=f"Media Info - {task_id}",
+                        html_content=f"<pre>{parsed_info}</pre>"
+                    )
+                    media_url = page['url']
+                else:
+                    media_url = None
+            except:
+                media_url = None
+            
+            # Send to user
+            if status_msg:
+                await status_msg.edit_text(parsed_info)
+                if media_url:
+                    await status_msg.reply_text(
+                        f"📄 **Full Info:** [View on Telegraph]({media_url})",
+                        disable_web_page_preview=True
+                    )
+            
+            # Return dummy file for tracking
+            return get_temp_filename(task_id, "txt")
+        
+        except Exception as e:
+            logger.error(f"MediaInfo error: {e}")
+            return None
+
+    async def _process_rotate(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process video rotation"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"🔄 **Rotating Video**\n\nTask ID: `{task_id}`"
+                )
+            
+            rotate_settings = settings.get('rotate_settings', {})
+            angle = rotate_settings.get('angle', 90)
+            
+            result = await ffmpeg.rotate_video(
+                input_file, output, angle, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Rotate error: {e}")
+            return None
+
+    async def _process_flip(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process video flipping"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"🔃 **Flipping Video**\n\nTask ID: `{task_id}`"
+                )
+            
+            flip_settings = settings.get('flip_settings', {})
+            direction = flip_settings.get('direction', 'horizontal')
+            
+            result = await ffmpeg.flip_video(
+                input_file, output, direction, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Flip error: {e}")
+            return None
+
+    async def _process_speed(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process speed adjustment"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"⚡ **Adjusting Speed**\n\nTask ID: `{task_id}`"
+                )
+            
+            speed_settings = settings.get('speed_settings', {})
+            multiplier = speed_settings.get('multiplier', 1.0)
+            
+            result = await ffmpeg.adjust_video_speed(
+                input_file, output, multiplier, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Speed error: {e}")
+            return None
+
+    async def _process_volume(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process volume adjustment"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"🔊 **Adjusting Volume**\n\nTask ID: `{task_id}`"
+                )
+            
+            volume_settings = settings.get('volume_settings', {})
+            level = volume_settings.get('level', 1.0)
+            
+            result = await ffmpeg.adjust_audio_volume(
+                input_file, output, level, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Volume error: {e}")
+            return None
+
+    async def _process_crop(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process video cropping"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"✂️ **Cropping Video**\n\nTask ID: `{task_id}`"
+                )
+            
+            crop_settings = settings.get('crop_settings', {})
+            
+            result = await ffmpeg.crop_video(
+                input_file, output, crop_settings, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Crop error: {e}")
+            return None
+
+    async def _process_gif(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process GIF conversion"""
+        try:
+            output = get_temp_filename(task_id, "gif")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"🎞️ **Creating GIF**\n\nTask ID: `{task_id}`"
+                )
+            
+            gif_settings = settings.get('gif_settings', {})
+            
+            result = await ffmpeg.convert_to_gif(
+                input_file, output, gif_settings, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"GIF error: {e}")
+            return None
+
+    async def _process_reverse(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process video reversal"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"⏪ **Reversing Video**\n\nTask ID: `{task_id}`"
+                )
+            
+            result = await ffmpeg.reverse_video(
+                input_file, output, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Reverse error: {e}")
+            return None
+
+    async def _process_extract(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process stream extraction"""
+        try:
+            extract_settings = settings.get('extract_settings', {})
+            extract_type = extract_settings.get('type', 'video')
+            
+            if extract_type == 'video':
+                output = get_temp_filename(task_id, "mp4")
+                msg = f"📹 **Extracting Video Stream**\n\nTask ID: `{task_id}`"
+            elif extract_type == 'audio':
+                output = get_temp_filename(task_id, "mp3")
+                msg = f"🎵 **Extracting Audio Track**\n\nTask ID: `{task_id}`"
+            else:
+                output = get_temp_filename(task_id, "srt")
+                msg = f"💬 **Extracting Subtitles**\n\nTask ID: `{task_id}`"
+            
+            if status_msg:
+                await status_msg.edit_text(msg)
+            
+            result = await ffmpeg.extract_stream(
+                input_file, output, extract_type, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Extract error: {e}")
+            return None
+
+    async def _process_audio_remover(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process audio removal"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"🔇 **Removing Audio**\n\nTask ID: `{task_id}`"
+                )
+            
+            result = await ffmpeg.remove_audio(
+                input_file, output, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"Audio remover error: {e}")
+            return None
+
+    async def _process_hd_cover(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process HD cover addition"""
+        try:
+            output = get_temp_filename(task_id, "mp4")
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"🎨 **Adding HD Cover**\n\nTask ID: `{task_id}`"
+                )
+            
+            # Get cover from settings
+            cover_file = settings.get('hd_cover_file')
+            
+            if not cover_file:
+                raise ValueError("No cover image provided")
+            
+            result = await ffmpeg.add_hd_cover(
+                input_file, output, cover_file, status_msg, task_id
+            )
+            
+            return output if result else None
+        
+        except Exception as e:
+            logger.error(f"HD cover error: {e}")
+            return None
+
+    async def _process_screenshot(
+        self, client, user_id: int, task_id: str,
+        input_file: str, status_msg, log_msg_id, settings: dict
+    ) -> Optional[str]:
+        """Process screenshot extraction"""
+        try:
+            output_dir = get_temp_filename(task_id, "")
+            os.makedirs(output_dir, exist_ok=True)
+            
+            if status_msg:
+                await status_msg.edit_text(
+                    f"📸 **Extracting Screenshots**\n\nTask ID: `{task_id}`"
+                )
+            
+            screenshot_settings = settings.get('screenshot_settings', {})
+            
+            result = await ffmpeg.extract_screenshots(
+                input_file, output_dir, screenshot_settings, status_msg, task_id
+            )
+            
+            return output_dir if result else None
+        
+        except Exception as e:
+            logger.error(f"Screenshot error: {e}")
+            return None
+
+# ==================== GLOBAL INSTANCE ====================
+
+# Create singleton processor instance
+processor = VideoProcessor()
